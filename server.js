@@ -191,6 +191,74 @@ app.get('/api/rooms', (_req, res) => {
   res.status(200).json({ rooms: [{ id: GLOBAL_ROOM, players: players.size, controllers: atcControllers.size }] });
 });
 
+const OSM_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter'
+];
+const osmProxyCache = new Map();
+const osmProxyInFlight = new Map();
+
+async function queryOverpassMirrors(bboxStr) {
+  const query = `[out:json][timeout:8][maxsize:8000000];(way["building"](${bboxStr});way["building:part"](${bboxStr});way["aeroway"~"^(terminal|hangar|control_tower)$"](${bboxStr});way["man_made"="tower"](${bboxStr});relation["building"](${bboxStr}););out body geom qt;`;
+  const attempts = OSM_ENDPOINTS.map(async (ep) => {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 8500);
+    try {
+      const resp = await fetch(ep, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+          'User-Agent': 'SkyDeckFlightSim/1.0'
+        },
+        body: new URLSearchParams({ data: query }).toString(),
+        signal: ac.signal
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      if (!data || !Array.isArray(data.elements)) throw new Error('Invalid Overpass payload');
+      return { elements: data.elements, source: ep };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+  return Promise.any(attempts);
+}
+
+app.get('/api/osm-buildings', async (req, res) => {
+  const raw = String(req.query.bbox || '').trim();
+  const parts = raw.split(',').map((s) => Number(s.trim()));
+  if (parts.length !== 4 || !parts.every(Number.isFinite)) {
+    res.status(400).json({ error: 'Invalid bbox', elements: [] });
+    return;
+  }
+  const [s, w, n, e] = parts;
+  if (s >= n || w >= e || (n - s) > 0.06 || (e - w) > 0.08) {
+    res.status(400).json({ error: 'Bbox span out of bounds', elements: [] });
+    return;
+  }
+  const bboxStr = [s.toFixed(5), w.toFixed(5), n.toFixed(5), e.toFixed(5)].join(',');
+  const cached = osmProxyCache.get(bboxStr);
+  if (cached && (Date.now() - cached.at) < 1800000) {
+    res.status(200).json({ elements: cached.elements, cached: true, source: cached.source });
+    return;
+  }
+  try {
+    let inflight = osmProxyInFlight.get(bboxStr);
+    if (!inflight) {
+      inflight = queryOverpassMirrors(bboxStr).finally(() => osmProxyInFlight.delete(bboxStr));
+      osmProxyInFlight.set(bboxStr, inflight);
+    }
+    const result = await inflight;
+    osmProxyCache.set(bboxStr, { elements: result.elements, source: result.source, at: Date.now() });
+    if (osmProxyCache.size > 90) osmProxyCache.delete(osmProxyCache.keys().next().value);
+    res.status(200).json({ elements: result.elements, cached: false, source: result.source });
+  } catch (_) {
+    res.status(200).json({ elements: [], unavailable: true });
+  }
+});
+
 app.get(['/atc', '/atc.html'], (_req, res) => {
   res.sendFile(path.resolve(__dirname, 'atc.html'));
 });
@@ -493,6 +561,41 @@ wss.on('connection', (ws) => {
         text,
         ts: Date.now()
       });
+      return;
+    }
+
+    if (data.type === 'radio:tx') {
+      const text = String(data.text || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 160);
+      if (!text) return;
+      broadcastGlobal({
+        type: 'radio:tx',
+        id: player.id,
+        callsign: player.callsign,
+        modelId: player.modelId || '737',
+        freq: Number(data.freq) || 122.8,
+        targetCallsign: String(data.targetCallsign || 'ALL'),
+        text,
+        ts: Date.now()
+      }, player.id);
+      return;
+    }
+
+    if (data.type === 'radio:audio') {
+      const b64 = String(data.audioB64 || '');
+      if (!b64 || b64.length > 980000) return;
+      broadcastGlobal({
+        type: 'radio:audio',
+        id: player.id,
+        callsign: player.callsign,
+        modelId: player.modelId || '737',
+        freq: Number(data.freq) || 122.8,
+        targetCallsign: String(data.targetCallsign || 'ALL'),
+        mimeType: String(data.mimeType || 'audio/webm'),
+        audioB64: b64,
+        durationMs: Number(data.durationMs) || 0,
+        transcript: String(data.transcript || '').slice(0, 200),
+        ts: Date.now()
+      }, player.id);
       return;
     }
 

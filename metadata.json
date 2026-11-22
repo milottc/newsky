@@ -1,0 +1,6 @@
+{
+  "name": "SkyDeck 737 Pro",
+  "description": "SkyDeck 737 Pro — 3D flight simulator with real-world satellite terrain, real OpenStreetMap 3D buildings, detailed aircraft fleet, live weather radar, global multiplayer, and plane-to-plane voice radio.",
+  "requestFramePermissions": ["microphone"],
+  "capabilities": []
+}

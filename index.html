@@ -18,9 +18,9 @@
 <!-- Microsoft Windows Tile (Optional, makes it look good when pinned to Start) -->
 <meta name="msapplication-TileImage" content="144.png">
 <title>SkyDeck 737 · Pro</title>
-<meta name="description" content="SkyDeck 737 Pro — 3D flight simulator with real-world satellite terrain, real OpenStreetMap 3D buildings, detailed aircraft fleet, live weather radar, and global multiplayer.">
+<meta name="description" content="SkyDeck 737 Pro — 3D flight simulator with global multiplayer, plane-to-plane voice radio, detailed aircraft fleet, and real-world satellite terrain.">
 <meta property="og:title" content="SkyDeck 737 · Pro">
-<meta property="og:description" content="3D flight simulator with real-world satellite terrain, real OpenStreetMap 3D buildings, detailed aircraft fleet, live weather radar, and global multiplayer.">
+<meta property="og:description" content="3D flight simulator with global multiplayer, plane-to-plane voice radio, detailed aircraft fleet, and real-world satellite terrain.">
 <style>
 /* ============================================================ */
 /* BABYLON FLIGHT 737 · SOLID GAME UI                           */
@@ -629,6 +629,36 @@ body.mobile #mpPanel,body.mobile #fpHudPill{display:none!important}
 #wxrAdv.warn{border-color:#f59e0b;color:#fde68a;background:#1f1505}
 #wxrAdv.severe{border-color:#ef4444;color:#fecaca;background:#220a0c}
 body.mobile #wxrPanel{top:52px;left:2vw}
+
+/* ============ AIR-TO-AIR & PLANE RADIO ============ */
+#radioBtn{border-color:rgba(56,189,248,.45);color:#bae6fd}
+.radDot{width:8px;height:8px;border-radius:50%;background:#38bdf8;display:inline-block;flex-shrink:0}
+#radioBtn.tx .radDot{background:#ef4444;box-shadow:0 0 10px #ef4444;animation:blink .5s infinite alternate}
+#radioPanel{
+  position:fixed;left:12px;top:56px;z-index:9997;
+  width:min(390px,95vw);max-height:84vh;overflow:auto;display:none;
+  padding:14px;border-radius:12px;background:rgba(8,14,24,.96);backdrop-filter:blur(12px);
+  border:1px solid rgba(56,189,248,.55);font-size:11.5px;color:#cbd5e1;
+  box-shadow:0 16px 40px rgba(0,0,0,.75);
+}
+#radioPanel.show{display:block;animation:faultIn .22s ease-out}
+#radioPanel .fh{display:flex;justify-content:space-between;align-items:center;color:#38bdf8;letter-spacing:1.8px;font-weight:700;margin-bottom:10px;font-size:12px;text-transform:uppercase}
+#radioPanel .row{display:flex;gap:6px;flex-wrap:wrap;margin:7px 0;align-items:center}
+#radioPanel button,#radioPanel select,#radioPanel input{padding:6px 10px;border-radius:7px;background:#111a2e;border:1px solid #263652;color:#bae6fd;font-family:inherit;font-size:11px;font-weight:600}
+#radioPanel button{cursor:pointer}
+#radioPanel button:hover{background:#1e2a44;border-color:#38bdf8}
+#radioPanel button.ptt{background:#7f1d1d;border-color:#ef4444;color:#fecaca}
+#radioPanel button.ptt.active{background:#b91c1c;box-shadow:0 0 12px #ef4444}
+#radioLog{height:160px;overflow:auto;background:#050a14;border:1px solid #1e324d;border-radius:8px;padding:8px;margin:6px 0;font:11px/1.45 monospace}
+#radioLog div{margin-bottom:4px}
+#radioLiveBanner{
+  position:fixed;top:62px;left:50%;transform:translateX(-50%);z-index:9998;
+  display:none;pointer-events:none;padding:8px 18px;border-radius:10px;
+  background:rgba(127,29,29,.92);border:2px solid #ef4444;color:#fecaca;
+  font:700 12px/1.2 monospace;letter-spacing:1px;box-shadow:0 6px 20px rgba(0,0,0,.5);
+}
+#radioLiveBanner.show{display:block;animation:faultIn .2s ease-out}
+
 
 /* ============ ATC ============ */
 #atcBtn{border-color:rgba(34,197,94,.45);color:#bbf7d0}
@@ -1419,10 +1449,10 @@ body:has(#overlay:not(.hidden)) #fpHudPill {
 
 @media (max-width: 700px){
   #hudBar{top:8px;left:8px;max-width:calc(100vw - 16px);gap:4px}
-  .hudBtn,#hudBar button,#fmsBtn,#atcBtn,#mpBtn,#wxrBtn{padding:6px 8px;font-size:10px}
+  .hudBtn,#hudBar button,#fmsBtn,#atcBtn,#mpBtn,#wxrBtn,#radioBtn{padding:6px 8px;font-size:10px}
   body.sidebar-open #flightSidebar{width:min(260px,calc(100vw - 16px));max-height:calc(100dvh - 68px);left:8px;top:52px}
   body.sidebar-open #objHud{left:8px;top:auto;bottom:270px}
-  body.sidebar-open #fms,body.sidebar-open #atc{left:8px;top:52px}
+  body.sidebar-open #fms,body.sidebar-open #atc,body.sidebar-open #radioPanel{left:8px;top:52px}
 }
   /* ============ MISSION OBJECTIVES HUD ============ */
 #objHud{
@@ -1646,7 +1676,44 @@ body.pfd-hidden #compass {
       <a class="tmItem" href="atc.html" target="_blank" rel="noopener" style="text-decoration:none"><span>📡 ATC Controller Page</span><span class="tmTag" style="color:#4ade80">OPEN ↗</span></a>
     </div>
   </div>
+  <button id="radioBtn" class="hudBtn" type="button" aria-expanded="false" aria-controls="radioPanel"><span class="radDot"></span><span>Radio</span></button>
 </div>
+<div id="radioPanel" aria-label="Plane-to-plane radio panel">
+  <div class="fh"><span>✈️ Air-to-Air & Plane Radio</span><button id="radioCloseBtn" type="button" style="background:none;border:none;color:#94a3b8;font-size:15px;cursor:pointer">✕</button></div>
+  <div class="row" style="justify-content:space-between">
+    <div style="display:flex;align-items:center;gap:6px">
+      <span class="lbl" style="color:#38bdf8">FREQ:</span>
+      <select id="radioFreqSel">
+        <option value="122.8">122.800 MHz (UNICOM)</option>
+        <option value="123.45">123.450 MHz (AIR-TO-AIR)</option>
+        <option value="121.5">121.500 MHz (GUARD / EMERGENCY)</option>
+      </select>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span class="lbl" style="color:#38bdf8">CALL:</span>
+      <input id="radioMyCallInp" type="text" value="SKYY1" maxlength="8" style="width:72px;text-transform:uppercase">
+    </div>
+  </div>
+  <div class="row">
+    <span class="lbl" style="color:#38bdf8">TARGET:</span>
+    <select id="radioTargetSel" style="flex:1">
+      <option value="ALL">ALL TRAFFIC (BROADCAST)</option>
+    </select>
+  </div>
+  <div class="row" style="gap:4px;flex-wrap:wrap">
+    <button type="button" data-phrase="Position report">📍 Position</button>
+    <button type="button" data-phrase="Traffic in sight">👀 In Sight</button>
+    <button type="button" data-phrase="Passing behind you">✈️ Behind</button>
+    <button type="button" data-phrase="Mayday Mayday Mayday">🚨 MAYDAY</button>
+  </div>
+  <div id="radioLog"></div>
+  <div class="row">
+    <input id="radioTextInp" type="text" placeholder="Type transmission or use PTT voice…" style="flex:1" maxlength="140">
+    <button id="radioSendBtn" type="button" style="background:#0e7490;border-color:#22d3ee;color:#ecfeff">Send</button>
+    <button id="radioPttBtn" class="ptt" type="button" title="Hold or click to talk (Mic PTT)">🎙 PTT</button>
+  </div>
+</div>
+<div id="radioLiveBanner" aria-live="polite"></div>
 <div id="masterWarn" aria-label="Master warning and caution annunciators">
   <button type="button" class="mw" id="mwWarn" aria-label="Acknowledge or test master warning" title="Master Warning · click to silence or test">MASTER WARN</button>
   <button type="button" class="mc" id="mwCaution" aria-label="Acknowledge or test master caution" title="Master Caution · click to acknowledge or test">MASTER CAUT</button>

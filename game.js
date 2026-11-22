@@ -6800,7 +6800,10 @@ async function fetchOsmBuildings(bounds){
         osmCache.set(key,data.elements);
         if(osmCache.size>72)osmCache.delete(osmCache.keys().next().value);
         return data.elements;
-      }catch(error){lastError=error;}
+      }catch(error){
+        if(error&&error.name==='AbortError')lastError=new Error('Overpass timeout');
+        else lastError=error;
+      }
       finally{clearTimeout(timer);}
     }
     throw lastError||new Error('OpenStreetMap building request failed');
