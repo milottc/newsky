@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SkyDeck ATC Center · Live Radar &amp; Voice Control</title>
+<meta name="description" content="SkyDeck 737 Pro Air Traffic Control Center — Live multiplayer radar scope, center frequency tuning, and push-to-talk voice radio broadcast.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2309111e'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2322d3ee' stroke-width='2.5' opacity='.6'/%3E%3Ccircle cx='32' cy='32' r='12' fill='none' stroke='%2334d399' stroke-width='2'/%3E%3Cpath d='M32 32 L50 20' stroke='%2334d399' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2322d3ee'/%3E%3C/svg%3E">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#060b13;
+    --panel:#0c1421;
+    --panel2:#111c2d;
+    --line:#1f324a;
+    --text:#e2ecf7;
+    --muted:#8299b5;
+    --cyan:#22d3ee;
+    --green:#34d399;
+    --amber:#f59e0b;
+    --red:#ef4444;
+  }
+  html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;font-variant-numeric:tabular-nums;overflow:hidden}
+  @media(max-width:960px){html,body{overflow:auto;height:auto;min-height:100%}}
+
+  .app{display:grid;grid-template-rows:auto 1fr;height:100dvh;min-height:100vh}
+  @media(max-width:960px){.app{height:auto;min-height:100dvh}}
+
+  /* Top Control Bar */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex;align-items:center;gap:10px}
+  .brandBadge{
+    width:32px;height:32px;border-radius:8px;background:#0b2238;border:1px solid rgba(34,211,238,.5);
+    display:grid;place-items:center;font-size:17px;color:var(--cyan);
+  }
+  .brandTitle{font-size:14px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;color:var(--text)}
+  .brandSub{font-size:11px;color:var(--muted);font-family:monospace}
+
+  .topControls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ctrlGroup{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+  .ctrlGroup label{font-size:10px;font-weight:700;letter-spacing:1px;color:var(--cyan);text-transform:uppercase;white-space:nowrap}
+  select,input[type=text],textarea{
+    background:#09111c;color:var(--text);border:1px solid #263b57;border-radius:6px;
+    padding:6px 8px;font-family:inherit;font-size:12px;font-weight:600;outline:none;
+  }
+  select:focus,input[type=text]:focus,textarea:focus{border-color:var(--cyan)}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+  .statusPill{
+    display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:8px;
+    background:#091422;border:1px solid var(--line);font-size:11px;font-weight:700;font-family:monospace;color:var(--muted);
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--amber)}
+  .dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .dot.tx{background:var(--red);box-shadow:0 0 10px var(--red);animation:pulse .5s infinite alternate}
+  @keyframes pulse{from{opacity:1}to{opacity:.45}}
+
+  .navBtn{
+    display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;
+    background:#112238;border:1px solid #2b4a70;color:#bae6fd;text-decoration:none;
+    font-size:11.5px;font-weight:700;cursor:pointer;transition:.12s;
+  }
+  .navBtn:hover{background:#183252;border-color:var(--cyan);color:#fff}
+
+  /* Main Split Workspace */
+  .workspace{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(350px,450px);min-height:0}
+  @media(max-width:960px){.workspace{grid-template-columns:1fr}}
+
+  /* Radar Scope Side */
+  .scopePane{position:relative;display:flex;flex-direction:column;min-height:420px;background:#050910;border-right:1px solid var(--line)}
+  .scopeHdr{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;
+    padding:8px 12px;background:rgba(12,20,33,.92);border-bottom:1px solid var(--line);z-index:2;
+  }
+  .scopeStats{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font:700 11px monospace;color:#93c5fd}
+  .scopeBtns{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+  .rngBtn{
+    padding:4px 8px;border-radius:6px;background:#0d1726;border:1px solid #233854;
+    color:#9fb4ce;font:700 10.5px monospace;cursor:pointer;
+  }
+  .rngBtn:hover{border-color:var(--cyan);color:#fff}
+  .rngBtn.on{background:#0e4f68;border-color:var(--cyan);color:#ecfeff}
+  #radarCanvas{flex:1;width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+  #radarCanvas:active{cursor:grabbing}
+  .scopeHint{
+    position:absolute;left:12px;bottom:10px;padding:5px 10px;border-radius:6px;
+    background:rgba(8,14,24,.82);border:1px solid rgba(34,211,238,.25);
+    font:600 10.5px monospace;color:var(--muted);pointer-events:none;
+  }
+
+  /* Controller Console Side */
+  .consolePane{display:flex;flex-direction:column;min-height:0;overflow:auto;background:var(--panel);padding:12px;gap:12px}
+  .sec{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:11px;display:flex;flex-direction:column;gap:8px}
+  .secHdr{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10.5px;font-weight:800;letter-spacing:1.4px;color:var(--cyan);text-transform:uppercase}
+
+  /* PTT Microphone Deck */
+  .pttGrid{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:stretch}
+  .pttBtn{
+    padding:14px 16px;border-radius:9px;border:2px solid #2b6a58;
+    background:linear-gradient(180deg,#12352c,#0c241e);color:#bbf7d0;
+    font-size:13px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;
+    cursor:pointer;user-select:none;-webkit-user-select:none;transition:.1s;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+  }
+  .pttBtn:hover{border-color:var(--green);color:#fff}
+  .pttBtn.live{
+    background:linear-gradient(180deg,#991b1b,#691111);border-color:#f87171;color:#fff;
+    box-shadow:0 0 18px rgba(239,68,68,.45);
+  }
+  .pttLockBtn{
+    padding:10px 12px;border-radius:9px;border:1px solid #354c6b;background:#0d1726;
+    color:#cbd5e1;font-size:11px;font-weight:700;cursor:pointer;min-width:96px;
+  }
+  .pttLockBtn.on{background:#7c2d12;border-color:var(--amber);color:#fde68a}
+
+  .vuWrap{display:flex;align-items:center;gap:8px}
+  .vuTrack{flex:1;height:8px;border-radius:4px;background:#070c14;border:1px solid #1e3148;overflow:hidden}
+  .vuFill{height:100%;width:0%;background:linear-gradient(90deg,#22c55e 0%,#eab308 75%,#ef4444 100%);transition:width 60ms linear}
+  .vuLbl{font:700 10px monospace;color:var(--muted);min-width:86px;text-align:right}
+  .transcriptBox{
+    min-height:28px;padding:6px 8px;border-radius:6px;background:#070d17;border:1px solid #1c2d43;
+    font:600 11px/1.35 monospace;color:#a7f3d0;
+  }
+
+  /* Text / TTS Transmission */
+  .phraseGrid{display:flex;flex-wrap:wrap;gap:5px}
+  .phraseBtn{
+    padding:5px 8px;border-radius:6px;background:#0b1422;border:1px solid #263c59;
+    color:#cbd5e1;font-size:10.5px;font-weight:600;cursor:pointer;
+  }
+  .phraseBtn:hover{border-color:var(--cyan);color:#fff;background:#14253d}
+  .txRow{display:flex;gap:6px;align-items:center}
+  .txRow input{flex:1;min-width:0}
+  .sendBtn{
+    padding:8px 13px;border-radius:7px;background:#0e7490;border:1px solid var(--cyan);
+    color:#ecfeff;font-size:11px;font-weight:800;letter-spacing:.7px;cursor:pointer;white-space:nowrap;
+  }
+  .sendBtn:hover{background:#0891b2}
+
+  /* Strips & Radio Log */
+  .stripTabs{display:flex;gap:4px}
+  .tabBtn{
+    padding:3px 8px;border-radius:5px;background:#09111c;border:1px solid #243955;
+    color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;
+  }
+  .tabBtn.on{background:#12344d;border-color:var(--cyan);color:#e0f2fe}
+
+  .stripList{max-height:190px;overflow:auto;display:flex;flex-direction:column;gap:5px}
+  .strip{
+    display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;
+    padding:7px 9px;border-radius:7px;background:#08101c;border:1px solid #1e3148;cursor:pointer;
+  }
+  .strip:hover{border-color:#38bdf8}
+  .strip.inCenter{border-left:3px solid var(--green)}
+  .strip.selected{background:#0d2538;border-color:var(--cyan)}
+  .stripTitle{font:700 11.5px monospace;color:#e2ecf7}
+  .stripMeta{font:600 10px monospace;color:var(--muted);margin-top:2px}
+  .stripBadge{font:700 10px monospace;padding:2px 6px;border-radius:4px;background:#112339;color:#7dd3fc}
+
+  .logBox{
+    height:170px;overflow:auto;background:#060b13;border:1px solid #1c2d43;border-radius:7px;
+    padding:8px;font:500 11px/1.45 ui-monospace,monospace;display:flex;flex-direction:column;gap:4px;
+  }
+  .logLine{word-break:break-word}
+  .logTime{color:#5c728d}
+  .logAtc{color:#4ade80;font-weight:700}
+  .logPilot{color:#38bdf8;font-weight:700}
+  .logSys{color:#94a3b8}
+  .replayBtn{
+    margin-left:6px;padding:1px 6px;border-radius:4px;background:#102a22;border:1px solid #34d399;
+    color:#a7f3d0;font:700 10px monospace;cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brandBadge" aria-hidden="true">📡</div>
+      <div>
+        <div class="brandTitle">SkyDeck ATC Center</div>
+        <div class="brandSub" id="sectorBanner">GLOBAL GUARD · 121.500 MHz</div>
+      </div>
+    </div>
+
+    <div class="topControls">
+      <div class="ctrlGroup">
+        <label for="centerSel">Center</label>
+        <select id="centerSel"></select>
+        <input id="customIcaoInp" type="text" maxlength="6" placeholder="ICAO" class="mono" style="width:68px;display:none" title="Custom Airport / Sector ICAO">
+      </div>
+      <div class="ctrlGroup">
+        <label for="ctrlCallInp">Callsign</label>
+        <input id="ctrlCallInp" type="text" maxlength="16" class="mono" style="width:125px" value="GLOBAL_CTR">
+      </div>
+      <div class="ctrlGroup">
+        <label for="freqInp">Freq</label>
+        <input id="freqInp" type="text" maxlength="7" class="mono" style="width:74px" value="121.500">
+      </div>
+      <div class="statusPill"><span class="dot" id="connDot"></span><span id="connTxt">CONNECTING…</span></div>
+      <a class="navBtn" href="index.html" target="_blank" rel="noopener">✈ Open Flight Sim</a>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="scopePane" aria-label="ATC Radar Scope">
+      <div class="scopeHdr">
+        <div class="scopeStats">
+          <span id="statPilots">0 PILOTS ONLINE</span>
+          <span id="statInSector" style="color:#34d399">0 IN CENTER</span>
+          <span id="statTarget" style="color:#fbbf24">TX TARGET: ALL IN CENTER</span>
+        </div>
+        <div class="scopeBtns" id="rangeBtns">
+          <button class="rngBtn" type="button" data-rng="20">20 NM</button>
+          <button class="rngBtn" type="button" data-rng="60">60 NM</button>
+          <button class="rngBtn on" type="button" data-rng="150">150 NM</button>
+          <button class="rngBtn" type="button" data-rng="400">400 NM</button>
+          <button class="rngBtn" type="button" data-rng="1200">1200 NM</button>
+          <button class="rngBtn" type="button" data-rng="world">WORLD</button>
+          <button class="rngBtn" type="button" id="centerScopeBtn" title="Re-center radar on active ATC Center">CENTER</button>
+        </div>
+      </div>
+      <canvas id="radarCanvas"></canvas>
+      <div class="scopeHint">Drag to pan · Scroll to zoom · Click aircraft to select TX target · Hold SPACE to key mic</div>
+    </section>
+
+    <aside class="consolePane" aria-label="ATC Voice and Clearances Console">
+      <section class="sec">
+        <div class="secHdr">
+          <span>🎙 Live Voice Radio (Center Broadcast)</span>
+          <span id="micStateTxt" class="mono" style="color:var(--muted)">MIC IDLE</span>
+        </div>
+        <div class="pttGrid">
+          <button id="pttBtn" class="pttBtn" type="button">HOLD TO SPEAK TO CENTER (SPACE)</button>
+          <button id="pttLockBtn" class="pttLockBtn" type="button" title="Toggle mic live without holding">🔒 LOCK TX</button>
+        </div>
+        <div class="vuWrap">
+          <div class="vuTrack"><div class="vuFill" id="vuFill"></div></div>
+          <span class="vuLbl" id="txTimerTxt">READY</span>
+        </div>
+        <div class="transcriptBox" id="transcriptBox">Speak into your microphone while holding PTT or SPACE to transmit live voice to every pilot in this center.</div>
+      </section>
+
+      <section class="sec">
+        <div class="secHdr">
+          <span>📢 Text-to-Speech Clearance</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer">
+              <input id="ttsChk" type="checkbox" checked> Sim Voice Readout
+            </label>
+            <button id="clearTargetBtn" class="tabBtn" type="button">ALL IN CENTER</button>
+          </div>
+        </div>
+        <div class="phraseGrid" id="phraseGrid"></div>
+        <div class="txRow">
+          <input id="txTextInp" type="text" maxlength="240" placeholder="Enter ATC instruction / clearance for center pilots…">
+          <button id="txSendBtn" class="sendBtn" type="button">TRANSMIT</button>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="secHdr">
+          <span>✈ Sector Traffic Strips</span>
+          <div class="stripTabs">
+            <button id="filterCenterBtn" class="tabBtn on" type="button">CENTER</button>
+            <button id="filterAllBtn" class="tabBtn" type="button">ALL GLOBAL</button>
+          </div>
+        </div>
+        <div class="stripList" id="stripList">
+          <div style="color:var(--muted);font:600 11px monospace;padding:6px">Waiting for pilots…</div>
+        </div>
+      </section>
+
+      <section class="sec" style="flex:1;min-height:170px">
+        <div class="secHdr">
+          <span>📻 Frequency Log</span>
+          <button id="clrLogBtn" class="tabBtn" type="button">CLEAR</button>
+        </div>
+        <div class="logBox" id="radioLog"></div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<script>
+(function(){
+  const CENTERS = [
+    { id: 'GLOBAL', name: 'GLOBAL GUARD · All Sim Traffic', defaultCall: 'GLOBAL_CTR', freq: '121.500', lat: 47.4647, lon: 8.5492, rangeNm: 2500, airports: [] },
+    { id: 'NCT', name: 'NorCal TRACON (KSFO/KOAK/KSJC)', defaultCall: 'NORCAL_APP', freq: '120.900', lat: 37.6213, lon: -122.3790, rangeNm: 180, airports: ['KSFO', 'KOAK', 'KSJC', 'KSMF', 'KFAT', 'KRNO'] },
+    { id: 'ZOA', name: 'Oakland Center (West US / Pacific)', defaultCall: 'OAKLAND_CTR', freq: '127.800', lat: 38.5000, lon: -121.8000, rangeNm: 450, airports: ['KSEA', 'KPDX', 'KBOI', 'PHNL', 'PHOG', 'PHKO', 'PANC'] },
+    { id: 'SCT', name: 'SoCal TRACON (KLAX/KSAN/KLAS)', defaultCall: 'SOCAL_APP', freq: '124.500', lat: 33.9425, lon: -118.4081, rangeNm: 220, airports: ['KLAX', 'KSAN', 'KBUR', 'KLGB', 'KONT', 'KSNA', 'KLAS', 'KPHX', 'KTUS'] },
+    { id: 'ZNY', name: 'New York Center (KJFK/KEWR/KLGA)', defaultCall: 'NY_CTR', freq: '125.325', lat: 40.6413, lon: -73.7781, rangeNm: 320, airports: ['KJFK', 'KEWR', 'KLGA', 'KTEB', 'KHPN', 'KISP', 'KHVN', 'KBOS', 'KPHL', 'KDCA', 'KBUF', 'KSYR', 'KALB', 'KPVD'] },
+    { id: 'ZAU', name: 'Chicago Center (KORD/KDTW/KMSP)', defaultCall: 'CHICAGO_CTR', freq: '121.350', lat: 41.9742, lon: -87.9073, rangeNm: 360, airports: ['KORD', 'KMDW', 'KDTW', 'KMSP', 'KSTL', 'KIND', 'KGRR', 'KMSN', 'KMCI', 'KDEN', 'KSLC', 'KDFW', 'KIAH'] },
+    { id: 'ZTL', name: 'Atlanta / Southeast (KATL/KMIA)', defaultCall: 'ATLANTA_CTR', freq: '123.825', lat: 33.6367, lon: -84.4281, rangeNm: 380, airports: ['KATL', 'KMIA', 'KFLL', 'KMCO', 'KTPA', 'KCLT', 'KRDU', 'KJAX', 'KMEM', 'KBNA', 'KMSY'] },
+    { id: 'CZY', name: 'Toronto / Canada (CYYZ/CYUL/CYVR)', defaultCall: 'TORONTO_CTR', freq: '128.575', lat: 43.6772, lon: -79.6306, rangeNm: 550, airports: ['CYYZ', 'CYTZ', 'CYKF', 'CYHM', 'CYUL', 'CYOW', 'CYQB', 'CYVR', 'CYYC', 'CYEG', 'CYHZ', 'CYWG'] },
+    { id: 'EGTT', name: 'London Control (EGLL/EGKK/EIDW)', defaultCall: 'LONDON_CTR', freq: '127.950', lat: 51.4700, lon: -0.4543, rangeNm: 280, airports: ['EGLL', 'EGKK', 'EGSS', 'EGCC', 'EGNX', 'EGBB', 'EGGD', 'EGPR', 'EIDW'] },
+    { id: 'LSAS', name: 'Swiss / Alpine Radar (LSZH/LSGG)', defaultCall: 'SWISS_CTR', freq: '128.050', lat: 47.4647, lon: 8.5492, rangeNm: 220, airports: ['LSZH', 'LSGG', 'LSZA', 'ALPS', 'MATTERHORN', 'LFLJ'] },
+    { id: 'LFFF', name: 'Paris Control (LFPG/EHAM/EBBR)', defaultCall: 'PARIS_CTR', freq: '125.700', lat: 48.9969, lon: 2.5483, rangeNm: 280, airports: ['LFPG', 'LFPO', 'EHAM', 'EBBR', 'LEMD', 'LEBL', 'LPPT'] },
+    { id: 'EDGG', name: 'Langen / Frankfurt (EDDF/EDDM)', defaultCall: 'LANGEN_CTR', freq: '125.200', lat: 50.0264, lon: 8.5431, rangeNm: 320, airports: ['EDDF', 'EDDM', 'EDDL', 'EDDB', 'LOWW', 'LKPR', 'ESSA', 'ENGM', 'EKCH', 'EFHK', 'EPWA'] },
+    { id: 'OMAE', name: 'Emirates / Gulf Radar (OMDB/OTHH)', defaultCall: 'EMIRATES_CTR', freq: '124.850', lat: 25.2532, lon: 55.3657, rangeNm: 360, airports: ['OMDB', 'OMAA', 'OTHH', 'OERK', 'OEJN', 'OKBK', 'VIDP', 'VABB'] },
+    { id: 'RJTG', name: 'Tokyo / East Asia (RJTT/RKSI/VHHH)', defaultCall: 'TOKYO_CTR', freq: '124.200', lat: 35.5494, lon: 139.7798, rangeNm: 500, airports: ['RJTT', 'RJAA', 'RKSI', 'RKSS', 'ZSPD', 'ZBAA', 'ZGGG', 'VHHH', 'RCTP', 'WSSS', 'VTBS', 'WMKK'] },
+    { id: 'YMMM', name: 'Sydney / Oceania (YSSY/YMML/NZAA)', defaultCall: 'SYDNEY_CTR', freq: '124.400', lat: -33.9399, lon: 151.1753, rangeNm: 500, airports: ['YSSY', 'YMML', 'YBBN', 'YPPH', 'NZAA', 'NZWN', 'NFFN', 'NTAA'] },
+    { id: 'CUSTOM', name: 'Custom Airport / Sector ICAO…', defaultCall: 'LOCAL_TWR', freq: '118.500', lat: 47.4647, lon: 8.5492, rangeNm: 80, airports: [] }
+  ];
+
+  const AIRPORTS = [
+    ['KSFO',37.6213,-122.3790],['KOAK',37.7213,-122.2208],['KSJC',37.3626,-121.9290],['KLAX',33.9425,-118.4081],['KSAN',32.7336,-117.1897],
+    ['KLAS',36.0840,-115.1537],['KSEA',47.4502,-122.3088],['KPDX',45.5888,-122.5975],['KPHX',33.4373,-112.0078],['KDEN',39.8561,-104.6737],
+    ['KSLC',40.7884,-111.9778],['KDFW',32.8968,-97.0380],['KIAH',29.9902,-95.3368],['KORD',41.9742,-87.9073],['KATL',33.6367,-84.4281],
+    ['KMIA',25.7959,-80.2870],['KMCO',28.4294,-81.3089],['KJFK',40.6413,-73.7781],['KEWR',40.6895,-74.1745],['KLGA',40.7773,-73.8726],
+    ['KBOS',42.3656,-71.0096],['KPHL',39.8721,-75.2411],['KDCA',38.8521,-77.0377],['KDTW',42.2124,-83.3534],['KMSP',44.8848,-93.2223],
+    ['CYYZ',43.6772,-79.6306],['CYUL',45.4706,-73.7408],['CYVR',49.1947,-123.1792],['CYYC',51.1139,-114.0203],['CYOW',45.3225,-75.6692],
+    ['EGLL',51.4700,-0.4543],['EGKK',51.1481,-0.1903],['EGSS',51.8850,0.2350],['EIDW',53.4213,-6.2701],['LFPG',48.9969,2.5483],
+    ['LFPO',48.7233,2.3794],['LSZH',47.4647,8.5492],['LSGG',46.2381,6.1089],['EHAM',52.3105,4.7683],['EBBR',50.9014,4.4844],
+    ['EDDF',50.0264,8.5431],['EDDM',48.3537,11.7860],['EDDB',52.3667,13.5033],['LOWW',48.1103,16.5697],['LEMD',40.4936,-3.5668],
+    ['LIRF',41.8003,12.2389],['LTFM',41.2753,28.7519],['OMDB',25.2532,55.3657],['OMAA',24.4330,54.6511],['OTHH',25.2731,51.6081],
+    ['VIDP',28.5665,77.1031],['VABB',19.0896,72.8656],['WSSS',1.3644,103.9915],['VTBS',13.9132,100.6070],['VHHH',22.3080,113.9185],
+    ['RJTT',35.5494,139.7798],['RJAA',35.7647,140.3864],['RKSI',37.4602,126.4407],['ZSPD',31.1434,121.8052],['ZBAA',40.0799,116.5845],
+    ['YSSY',-33.9399,151.1753],['YMML',-37.6733,144.8430],['NZAA',-37.0082,174.7917],['PHNL',21.3245,-157.9251],['SBGR',-23.4356,-46.4731],
+    ['TNCM',18.0408,-63.1189],['VNLK',27.6867,86.7297]
+  ];
+
+  const centerSel = document.getElementById('centerSel');
+  const customIcaoInp = document.getElementById('customIcaoInp');
+  const ctrlCallInp = document.getElementById('ctrlCallInp');
+  const freqInp = document.getElementById('freqInp');
+  const sectorBanner = document.getElementById('sectorBanner');
+  const connDot = document.getElementById('connDot');
+  const connTxt = document.getElementById('connTxt');
+  const radarCanvas = document.getElementById('radarCanvas');
+  const rctx = radarCanvas.getContext('2d');
+  const statPilots = document.getElementById('statPilots');
+  const statInSector = document.getElementById('statInSector');
+  const statTarget = document.getElementById('statTarget');
+  const pttBtn = document.getElementById('pttBtn');
+  const pttLockBtn = document.getElementById('pttLockBtn');
+  const micStateTxt = document.getElementById('micStateTxt');
+  const vuFill = document.getElementById('vuFill');
+  const txTimerTxt = document.getElementById('txTimerTxt');
+  const transcriptBox = document.getElementById('transcriptBox');
+  const txTextInp = document.getElementById('txTextInp');
+  const txSendBtn = document.getElementById('txSendBtn');
+  const ttsChk = document.getElementById('ttsChk');
+  const clearTargetBtn = document.getElementById('clearTargetBtn');
+  const stripList = document.getElementById('stripList');
+  const radioLog = document.getElementById('radioLog');
+  const filterCenterBtn = document.getElementById('filterCenterBtn');
+  const filterAllBtn = document.getElementById('filterAllBtn');
+
+  CENTERS.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.id;
+    o.textContent = c.id === 'CUSTOM' ? c.name : `${c.id} · ${c.name} (${c.freq})`;
+    centerSel.appendChild(o);
+  });
+
+  const urlParams = new URLSearchParams(location.search);
+  const initialCenter = (urlParams.get('center') || 'GLOBAL').toUpperCase();
+  centerSel.value = CENTERS.some(c => c.id === initialCenter) ? initialCenter : 'GLOBAL';
+
+  const pilots = new Map();
+  let selectedPilotId = null;
+  let filterMode = 'center';
+  let scopeRange = 150;
+  let scopeLat = 47.4647;
+  let scopeLon = 8.5492;
+  let ws = null;
+  let connected = false;
+  let transport = 'ws';
+  let reconTimer = null;
+  let reconDelay = 1500;
+  const MQTT_PREFIX = 'skydeck737/v1/global';
+  const MQTT_BROKERS = [
+    'wss://broker.emqx.io:8084/mqtt',
+    'wss://broker.hivemq.com:8884/mqtt',
+    'wss://test.mosquitto.org:8081/mqtt'
+  ];
+  let brokerIdx = 0;
+  let rxBuf = new Uint8Array(0);
+  let pktId = 1;
+  const mqttId = 'ATC_' + Math.random().toString(36).slice(2, 8).toUpperCase();
+
+  const _te = new TextEncoder(), _td = new TextDecoder();
+  const mqttCodec = {
+    encStr(s){const b=_te.encode(String(s||''));const o=new Uint8Array(2+b.length);o[0]=(b.length>>8)&255;o[1]=b.length&255;o.set(b,2);return o;},
+    encVarLen(n){const o=[];let x=n|0;do{let d=x%128;x=Math.floor(x/128);if(x>0)d|=128;o.push(d);}while(x>0);return o;},
+    decVarLen(b,off){let mul=1,v=0,i=off;while(i<b.length){const x=b[i++];v+=(x&127)*mul;if(!(x&128))return{val:v,next:i};mul*=128;if(mul>2097152)return null;}return null;},
+    makePacket(hb,parts){let len=0;for(const p of parts)len+=p.length;const vl=this.encVarLen(len);const o=new Uint8Array(1+vl.length+len);o[0]=hb;o.set(vl,1);let pos=1+vl.length;for(const p of parts){o.set(p,pos);pos+=p.length;}return o;},
+    encodeConnect(cid){const pr=this.encStr('MQTT');const vh=new Uint8Array(pr.length+4);vh.set(pr,0);vh[pr.length]=4;vh[pr.length+1]=2;vh[pr.length+2]=0;vh[pr.length+3]=45;return this.makePacket(0x10,[vh,this.encStr(cid)]);},
+    encodeSubscribe(id,tf){return this.makePacket(0x82,[new Uint8Array([(id>>8)&255,id&255]),this.encStr(tf),new Uint8Array([0])]);},
+    encodePublish(topic,text){return this.makePacket(0x30,[this.encStr(topic),_te.encode(String(text||''))]);},
+    encodePingreq(){return new Uint8Array([0xc0,0]);},
+    decodePackets(buf){const pkts=[];let off=0;while(off+2<=buf.length){const t=buf[off]>>4;const dl=this.decVarLen(buf,off+1);if(!dl)break;const end=dl.next+dl.val;if(end>buf.length)break;const pl=buf.subarray(dl.next,end);if(t===3&&pl.length>=2){const tl=(pl[0]<<8)|pl[1];const topic=_td.decode(pl.subarray(2,2+tl));const text=_td.decode(pl.subarray(2+tl));pkts.push({type:t,topic,text});}else pkts.push({type:t,payload:pl});off=end;}return{packets:pkts,rest:buf.subarray(off)};}
+  };
+
+  function getActiveCenter() {
+    const sel = centerSel.value;
+    if (sel === 'CUSTOM') {
+      const icao = (customIcaoInp.value || 'LOCAL').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'LOCAL';
+      const ap = AIRPORTS.find(a => a[0] === icao);
+      return {
+        id: icao,
+        name: `${icao} Local Center / Tower`,
+        defaultCall: `${icao}_TWR`,
+        freq: freqInp.value || '118.500',
+        lat: ap ? ap[1] : scopeLat,
+        lon: ap ? ap[2] : scopeLon,
+        rangeNm: 80,
+        airports: [icao]
+      };
+    }
+    return CENTERS.find(c => c.id === sel) || CENTERS[0];
+  }
+
+  function pilotInCenter(p, ctr) {
+    if (!p) return false;
+    if (ctr.id === 'GLOBAL') return true;
+    const pCtr = String(p.centerId || '').toUpperCase();
+    const pAp = String(p.airport || '').toUpperCase();
+    if (pCtr && pCtr === ctr.id) return true;
+    if (pAp && pAp === ctr.id) return true;
+    if (ctr.airports && ctr.airports.includes(pAp)) return true;
+    if (Number.isFinite(p.lat) && Number.isFinite(p.lon)) {
+      const dLat = (p.lat - ctr.lat) * 60;
+      const dLon = (p.lon - ctr.lon) * 60 * Math.cos(ctr.lat * Math.PI / 180);
+      return Math.hypot(dLat, dLon) <= (ctr.rangeNm || 200);
+    }
+    return false;
+  }
+
+  function applyCenterSelection(recenter) {
+    const sel = centerSel.value;
+    customIcaoInp.style.display = sel === 'CUSTOM' ? '' : 'none';
+    const c = getActiveCenter();
+    if (!ctrlCallInp.dataset.dirty) ctrlCallInp.value = c.defaultCall;
+    if (!freqInp.dataset.dirty) freqInp.value = c.freq;
+    sectorBanner.textContent = `${c.id} · ${c.name} · ${freqInp.value || c.freq} MHz`;
+    if (recenter) {
+      scopeLat = c.lat;
+      scopeLon = c.lon;
+      if (c.id === 'GLOBAL') setRange('world');
+      else if (c.rangeNm <= 180) setRange(150);
+      else setRange(400);
+    }
+    sendAtcJoin();
+    renderStrips();
+  }
+
+  ctrlCallInp.addEventListener('input', () => { ctrlCallInp.dataset.dirty = '1'; });
+  ctrlCallInp.addEventListener('change', () => sendAtcJoin());
+  freqInp.addEventListener('input', () => { freqInp.dataset.dirty = '1'; });
+  freqInp.addEventListener('change', () => { applyCenterSelection(false); });
+  centerSel.addEventListener('change', () => {
+    delete ctrlCallInp.dataset.dirty;
+    delete freqInp.dataset.dirty;
+    applyCenterSelection(true);
+  });
+  customIcaoInp.addEventListener('change', () => applyCenterSelection(true));
+
+  function esc(s) {
+    return String(s || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+  }
+
+  function addLog(html) {
+    const ts = new Date();
+    const hm = String(ts.getHours()).padStart(2, '0') + ':' + String(ts.getMinutes()).padStart(2, '0') + ':' + String(ts.getSeconds()).padStart(2, '0');
+    const div = document.createElement('div');
+    div.className = 'logLine';
+    div.innerHTML = `<span class="logTime">[${hm}]</span> ${html}`;
+    radioLog.appendChild(div);
+    while (radioLog.children.length > 90) radioLog.removeChild(radioLog.firstChild);
+    radioLog.scrollTop = radioLog.scrollHeight;
+  }
+
+  document.getElementById('clrLogBtn').addEventListener('click', () => { radioLog.innerHTML = ''; });
+
+  function getTargetCallsign() {
+    if (selectedPilotId && pilots.has(selectedPilotId)) {
+      return pilots.get(selectedPilotId).callsign;
+    }
+    return 'ALL AIRCRAFT';
+  }
+
+  function updateTargetLabel() {
+    const t = getTargetCallsign();
+    const ctr = getActiveCenter();
+    statTarget.textContent = t === 'ALL AIRCRAFT' ? `TX TARGET: ALL IN ${ctr.id}` : `TX TARGET: ${t}`;
+  }
+
+  clearTargetBtn.addEventListener('click', () => {
+    selectedPilotId = null;
+    updateTargetLabel();
+    renderStrips();
+  });
+
+  filterCenterBtn.addEventListener('click', () => {
+    filterMode = 'center';
+    filterCenterBtn.classList.add('on');
+    filterAllBtn.classList.remove('on');
+    renderStrips();
+  });
+  filterAllBtn.addEventListener('click', () => {
+    filterMode = 'all';
+    filterAllBtn.classList.add('on');
+    filterCenterBtn.classList.remove('on');
+    renderStrips();
+  });
+
+  function renderStrips() {
+    const ctr = getActiveCenter();
+    const all = [...pilots.values()];
+    const inSec = all.filter(p => pilotInCenter(p, ctr));
+    statPilots.textContent = `${all.length} PILOT${all.length === 1 ? '' : 'S'} ONLINE`;
+    statInSector.textContent = `${inSec.length} IN ${ctr.id}`;
+
+    const list = (filterMode === 'center' ? inSec : all)
+      .sort((a, b) => (b.flying - a.flying) || String(a.callsign).localeCompare(String(b.callsign)));
+    if (!list.length) {
+      stripList.innerHTML = `<div style="color:var(--muted);font:600 11px monospace;padding:6px">${all.length ? `No pilots currently inside ${esc(ctr.id)} (switch to ALL GLOBAL or GLOBAL center).` : 'No pilots connected yet.'}</div>`;
+      return;
+    }
+    stripList.innerHTML = '';
+    for (const p of list) {
+      const isIn = pilotInCenter(p, ctr);
+      const el = document.createElement('div');
+      el.className = 'strip' + (isIn ? ' inCenter' : '') + (selectedPilotId === p.id ? ' selected' : '');
+      const altFt = Math.round((p.alt || 0) * 3.28084);
+      const kt = Math.round((p.spd || 0) * 1.94384);
+      const hdg = String(Math.round(((p.hdg || 0) % 360 + 360) % 360)).padStart(3, '0');
+      const vsFpm = Math.round((p.vs || 0) * 196.85);
+      const vsArrow = vsFpm > 180 ? '↑' : vsFpm < -180 ? '↓' : '→';
+      el.innerHTML = `
+        <div>
+          <div class="stripTitle">${esc(p.callsign)} · ${esc((p.modelId || '737').toUpperCase())}</div>
+          <div class="stripMeta">${esc(p.airport || '---')} (${esc(p.centerId || 'GLOBAL')}) · ${altFt.toLocaleString()}ft ${vsArrow} · ${kt}kt · ${hdg}°</div>
+        </div>
+        <span class="stripBadge">${p.flying ? 'AIR/GND' : 'MENU'}</span>
+      `;
+      el.addEventListener('click', () => {
+        selectedPilotId = selectedPilotId === p.id ? null : p.id;
+        if (selectedPilotId && Number.isFinite(p.lat) && Number.isFinite(p.lon)) {
+          scopeLat = p.lat;
+          scopeLon = p.lon;
+        }
+        updateTargetLabel();
+        renderStrips();
+      });
+      stripList.appendChild(el);
+    }
+  }
+
+  /* ===== WebSocket + Static MQTT Relay ===== */
+  function sendWs(obj) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    if (transport === 'mqtt') {
+      try {
+        const sub = obj.type === 'atc:audio' ? 'atc/audio' : 'atc/tx';
+        ws.send(mqttCodec.encodePublish(MQTT_PREFIX + '/' + sub, JSON.stringify(obj)));
+        return true;
+      } catch (_) { return false; }
+    }
+    try { ws.send(JSON.stringify(obj)); return true; } catch (_) { return false; }
+  }
+
+  function sendAtcJoin() {
+    const c = getActiveCenter();
+    const payload = {
+      type: 'atc:join',
+      callsign: (ctrlCallInp.value || c.defaultCall).toUpperCase().trim(),
+      centerId: c.id,
+      centerName: c.name,
+      freq: freqInp.value || c.freq
+    };
+    if (transport === 'ws' && ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify(payload)); } catch (_) {}
+    }
+    updateTargetLabel();
+  }
+
+  function handlePilotUpsert(p) {
+    if (!p || !p.id) return;
+    pilots.set(p.id, p);
+    renderStrips();
+  }
+
+  function handleIncomingAudio(msg) {
+    if (!msg || !msg.audioB64) return;
+    const tr = msg.transcript ? ` "${esc(msg.transcript)}"` : '';
+    addLog(`<span class="logAtc">🎙 ${esc(msg.callsign)} [${esc(msg.centerId)} ${esc(msg.freq)}]</span> → ${esc(msg.targetCallsign || 'ALL')}:${tr} <button class="replayBtn" type="button">▶ PLAY</button>`);
+    const btns = radioLog.querySelectorAll('.replayBtn');
+    const lastBtn = btns[btns.length - 1];
+    if (lastBtn) {
+      lastBtn.addEventListener('click', () => playBase64Audio(msg.audioB64, msg.mimeType));
+    }
+  }
+
+  function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    if (reconTimer) { clearTimeout(reconTimer); reconTimer = null; }
+
+    const isStatic = /(^|\.)(github\.io|githubusercontent\.com|netlify\.app|vercel\.app|pages\.dev|surge\.sh)$/i.test(location.hostname || '');
+    if (isStatic) transport = 'mqtt';
+
+    if (transport === 'mqtt') {
+      connDot.className = 'dot';
+      connTxt.textContent = 'MQTT RELAY…';
+      rxBuf = new Uint8Array(0);
+      let cur;
+      try { cur = new WebSocket(MQTT_BROKERS[brokerIdx % MQTT_BROKERS.length], 'mqtt'); } catch (_) { brokerIdx++; scheduleRecon(); return; }
+      ws = cur;
+      ws.binaryType = 'arraybuffer';
+      cur.addEventListener('open', () => {
+        if (ws !== cur) return;
+        cur.send(mqttCodec.encodeConnect(mqttId));
+      });
+      cur.addEventListener('message', ev => {
+        if (ws !== cur || !(ev.data instanceof ArrayBuffer)) return;
+        const chunk = new Uint8Array(ev.data);
+        const merged = new Uint8Array(rxBuf.length + chunk.length);
+        merged.set(rxBuf, 0); merged.set(chunk, rxBuf.length);
+        const dec = mqttCodec.decodePackets(merged);
+        rxBuf = dec.rest;
+        for (const pkt of dec.packets) {
+          if (pkt.type === 2) {
+            connected = true;
+            reconDelay = 1500;
+            connDot.className = 'dot on';
+            connTxt.textContent = 'LIVE · MQTT RELAY';
+            cur.send(mqttCodec.encodeSubscribe(pktId++, MQTT_PREFIX + '/#'));
+            addLog('<span class="logSys">Connected to ATC Global Relay.</span>');
+          } else if (pkt.type === 3 && pkt.topic && pkt.text) {
+            const sub = pkt.topic.slice(MQTT_PREFIX.length + 1);
+            let data = null; try { data = JSON.parse(pkt.text); } catch (_) { continue; }
+            if (!data) continue;
+            if (sub.startsWith('state/')) handlePilotUpsert(data);
+            else if (sub === 'leave' && data.id) { pilots.delete(data.id); renderStrips(); }
+            else if (sub === 'chat' && data.text) addLog(`<span class="logPilot">${esc(data.callsign || 'PILOT')}:</span> ${esc(data.text)}`);
+          }
+        }
+      });
+      cur.addEventListener('close', () => { if (ws !== cur) return; connected = false; ws = null; brokerIdx++; scheduleRecon(); });
+      cur.addEventListener('error', () => { try { cur.close(); } catch (_) {} });
+      return;
+    }
+
+    const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const url = proto + location.host;
+    connDot.className = 'dot';
+    connTxt.textContent = 'CONNECTING…';
+    let cur = null;
+    try { cur = new WebSocket(url); } catch (_) { transport = 'mqtt'; connect(); return; }
+    ws = cur;
+    let welded = false;
+
+    const fbTimer = setTimeout(() => {
+      if (ws === cur && !welded) { transport = 'mqtt'; try { cur.close(); } catch (_) {} connect(); }
+    }, 4500);
+
+    cur.addEventListener('open', () => {
+      if (ws !== cur) return;
+      connected = true;
+      reconDelay = 1500;
+      sendAtcJoin();
+    });
+
+    cur.addEventListener('message', ev => {
+      if (ws !== cur) return;
+      let msg = null;
+      try { msg = JSON.parse(ev.data); } catch (_) { return; }
+      if (!msg || !msg.type) return;
+
+      if (msg.type === 'atc:welcome') {
+        welded = true;
+        clearTimeout(fbTimer);
+        connDot.className = 'dot on';
+        connTxt.textContent = 'LIVE · ' + (msg.centerId || 'GLOBAL');
+        pilots.clear();
+        (msg.players || []).forEach(p => pilots.set(p.id, p));
+        renderStrips();
+        addLog(`<span class="logSys">Station active: <b>${esc(msg.callsign)}</b> on <b>${esc(msg.centerId)} (${esc(msg.freq)})</b>.</span>`);
+      } else if (msg.type === 'player:joined' && msg.player) {
+        handlePilotUpsert(msg.player);
+        addLog(`<span class="logSys">↗ ${esc(msg.player.callsign)} entered airspace (${esc(msg.player.airport || '---')})</span>`);
+      } else if (msg.type === 'player:state' && msg.player) {
+        handlePilotUpsert(msg.player);
+      } else if (msg.type === 'player:left' && msg.id) {
+        const old = pilots.get(msg.id);
+        pilots.delete(msg.id);
+        renderStrips();
+        if (old) addLog(`<span class="logSys">↙ ${esc(old.callsign)} left frequency</span>`);
+      } else if (msg.type === 'chat:msg' && msg.text) {
+        addLog(`<span class="logPilot">${esc(msg.callsign || 'PILOT')} [${esc(msg.centerId || 'GLOBAL')}]:</span> ${esc(msg.text)}`);
+      } else if (msg.type === 'atc:tx' && msg.text) {
+        addLog(`<span class="logAtc">📢 ${esc(msg.callsign)} [${esc(msg.centerId)} ${esc(msg.freq)}]</span> → ${esc(msg.targetCallsign || 'ALL')}: ${esc(msg.text)}`);
+      } else if (msg.type === 'atc:audio') {
+        handleIncomingAudio(msg);
+      }
+    });
+
+    cur.addEventListener('close', () => {
+      if (ws !== cur) return;
+      clearTimeout(fbTimer);
+      connected = false; ws = null;
+      if (!welded) { transport = 'mqtt'; connect(); return; }
+      scheduleRecon();
+    });
+    cur.addEventListener('error', () => { try { cur.close(); } catch (_) {} });
+  }
+
+  function scheduleRecon() {
+    if (reconTimer) return;
+    connDot.className = 'dot';
+    connTxt.textContent = 'RECONNECTING…';
+    reconTimer = setTimeout(() => { reconTimer = null; reconDelay = Math.min(8000, reconDelay * 1.4); connect(); }, reconDelay);
+  }
+
+  setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      if (transport === 'mqtt') ws.send(mqttCodec.encodePingreq());
+      else ws.send(JSON.stringify({ type: 'ping' }));
+    } catch (_) {}
+  }, 20000);
+
+  /* ===== Audio Squelch & Push-To-Talk Mic Voice Broadcast ===== */
+  let audioCtx = null;
+  function playSquelch(on) {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.value = on ? 1320 : 880;
+      g.gain.setValueAtTime(0.06, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.055);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + 0.06);
+    } catch (_) {}
+  }
+
+  function playBase64Audio(b64, mimeType) {
+    try {
+      const bin = atob(b64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const blob = new Blob([arr], { type: mimeType || 'audio/webm' });
+      const u = URL.createObjectURL(blob);
+      const a = new Audio(u);
+      a.onended = () => URL.revokeObjectURL(u);
+      a.play().catch(() => {});
+    } catch (_) {}
+  }
+
+  let micStream = null;
+  let analyser = null;
+  let vuData = null;
+  let recorder = null;
+  let recChunks = [];
+  let recStartMs = 0;
+  let txActive = false;
+  let txLocked = false;
+  let speechRec = null;
+  let liveTranscript = '';
+  let txTickIv = null;
+
+  async function ensureMic() {
+    if (micStream) return micStream;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Microphone API unavailable in this browser');
+    }
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(micStream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    vuData = new Uint8Array(analyser.frequencyBinCount);
+    src.connect(analyser);
+    return micStream;
+  }
+
+  function updateVuLoop() {
+    if (analyser && vuData && txActive) {
+      analyser.getByteTimeDomainData(vuData);
+      let peak = 0;
+      for (let i = 0; i < vuData.length; i++) {
+        const v = Math.abs(vuData[i] - 128) / 128;
+        if (v > peak) peak = v;
+      }
+      vuFill.style.width = Math.min(100, Math.round(peak * 220)) + '%';
+    } else {
+      vuFill.style.width = '0%';
+    }
+    requestAnimationFrame(updateVuLoop);
+  }
+  requestAnimationFrame(updateVuLoop);
+
+  function pickMime() {
+    const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+    if (typeof MediaRecorder === 'undefined') return '';
+    for (const t of types) {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return '';
+  }
+
+  async function startPTT() {
+    if (txActive) return;
+    if (!connected) {
+      addLog('<span class="logSys">Cannot transmit — waiting for server connection.</span>');
+      return;
+    }
+    try {
+      await ensureMic();
+    } catch (e) {
+      micStateTxt.textContent = 'MIC DENIED';
+      transcriptBox.textContent = 'Microphone access blocked or unavailable. Use Text-to-Speech Clearance below to speak to the center!';
+      return;
+    }
+    txActive = true;
+    liveTranscript = '';
+    recChunks = [];
+    recStartMs = Date.now();
+    playSquelch(true);
+    connDot.className = 'dot tx';
+    pttBtn.classList.add('live');
+    pttBtn.textContent = '🔴 TRANSMITTING TO ' + getActiveCenter().id + ' (RELEASE TO SEND)';
+    micStateTxt.textContent = 'KEYED ON ' + (freqInp.value || getActiveCenter().freq);
+    transcriptBox.textContent = 'Listening… speak clearly into microphone';
+
+    const mime = pickMime();
+    try {
+      recorder = mime ? new MediaRecorder(micStream, { mimeType: mime, audioBitsPerSecond: 24000 }) : new MediaRecorder(micStream);
+    } catch (_) {
+      recorder = new MediaRecorder(micStream);
+    }
+    recorder.ondataavailable = e => { if (e.data && e.data.size > 0) recChunks.push(e.data); };
+    recorder.onstop = () => {
+      const dur = Date.now() - recStartMs;
+      const blob = new Blob(recChunks, { type: recorder.mimeType || mime || 'audio/webm' });
+      if (dur < 180 || blob.size < 400) {
+        txTimerTxt.textContent = 'TOO SHORT';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const res = String(reader.result || '');
+        const comma = res.indexOf(',');
+        if (comma < 0) return;
+        const b64 = res.slice(comma + 1);
+        const ctr = getActiveCenter();
+        sendWs({
+          type: 'atc:audio',
+          controllerCallsign: (ctrlCallInp.value || ctr.defaultCall).toUpperCase().trim(),
+          centerId: ctr.id,
+          centerName: ctr.name,
+          freq: freqInp.value || ctr.freq,
+          targetCallsign: getTargetCallsign(),
+          mimeType: blob.type || 'audio/webm',
+          audioB64: b64,
+          durationMs: dur,
+          transcript: liveTranscript.trim()
+        });
+        txTimerTxt.textContent = `SENT ${(dur / 1000).toFixed(1)}s`;
+      };
+      reader.readAsDataURL(blob);
+    };
+    recorder.start(250);
+
+    try {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SR) {
+        speechRec = new SR();
+        speechRec.continuous = true;
+        speechRec.interimResults = true;
+        speechRec.lang = 'en-US';
+        speechRec.onresult = ev => {
+          let txt = '';
+          for (let i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript + ' ';
+          liveTranscript = txt.trim();
+          if (liveTranscript) transcriptBox.textContent = '"' + liveTranscript + '"';
+        };
+        speechRec.start();
+      }
+    } catch (_) {}
+
+    if (txTickIv) clearInterval(txTickIv);
+    txTickIv = setInterval(() => {
+      if (!txActive) return;
+      const s = (Date.now() - recStartMs) / 1000;
+      txTimerTxt.textContent = `TX ${s.toFixed(1)}s`;
+      if (s >= 20) stopPTT();
+    }, 100);
+  }
+
+  function stopPTT() {
+    if (!txActive) return;
+    txActive = false;
+    txLocked = false;
+    pttLockBtn.classList.remove('on');
+    if (txTickIv) { clearInterval(txTickIv); txTickIv = null; }
+    playSquelch(false);
+    connDot.className = connected ? 'dot on' : 'dot';
+    pttBtn.classList.remove('live');
+    pttBtn.textContent = 'HOLD TO SPEAK TO CENTER (SPACE)';
+    micStateTxt.textContent = 'MIC IDLE';
+    try { if (speechRec) { speechRec.stop(); speechRec = null; } } catch (_) {}
+    try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch (_) {}
+  }
+
+  pttBtn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (!txLocked) startPTT();
+  });
+  window.addEventListener('pointerup', () => { if (txActive && !txLocked) stopPTT(); });
+  pttLockBtn.addEventListener('click', () => {
+    if (txActive && txLocked) {
+      stopPTT();
+    } else {
+      txLocked = true;
+      pttLockBtn.classList.add('on');
+      startPTT();
+    }
+  });
+
+  window.addEventListener('keydown', e => {
+    if (e.code === 'Space' && !e.repeat && !/INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '')) {
+      e.preventDefault();
+      startPTT();
+    }
+  });
+  window.addEventListener('keyup', e => {
+    if (e.code === 'Space' && !txLocked && !/INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '')) {
+      e.preventDefault();
+      stopPTT();
+    }
+  });
+
+  /* ===== Text + TTS Clearance Broadcast ===== */
+  function transmitText(raw) {
+    const text = String(raw || txTextInp.value || '').trim();
+    if (!text) return;
+    const ctr = getActiveCenter();
+    const ok = sendWs({
+      type: 'atc:tx',
+      controllerCallsign: (ctrlCallInp.value || ctr.defaultCall).toUpperCase().trim(),
+      centerId: ctr.id,
+      centerName: ctr.name,
+      freq: freqInp.value || ctr.freq,
+      targetCallsign: getTargetCallsign(),
+      text,
+      voiceReadout: !!ttsChk.checked
+    });
+    if (ok && raw == null) txTextInp.value = '';
+  }
+  txSendBtn.addEventListener('click', () => transmitText());
+  txTextInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); transmitText(); } });
+
+  const PHRASES = [
+    ['Takeoff Clear', () => `${getTargetCallsign()}, wind calm, cleared for takeoff, fly runway heading.`],
+    ['Line Up & Wait', () => `${getTargetCallsign()}, line up and wait, traffic departing ahead.`],
+    ['Climb 18,000', () => `${getTargetCallsign()}, climb and maintain flight level 180.`],
+    ['Descend 4,000', () => `${getTargetCallsign()}, descend and maintain 4,000 feet, QNH 1013.`],
+    ['Cleared ILS', () => `${getTargetCallsign()}, cleared ILS approach, report established on localizer.`],
+    ['Cleared to Land', () => `${getTargetCallsign()}, wind calm, cleared to land.`],
+    ['Go Around', () => `${getTargetCallsign()}, go around! Climb straight ahead to 3,000 feet.`],
+    ['Guard Broadcast', () => `All stations in ${getActiveCenter().id}, ${ctrlCallInp.value || getActiveCenter().defaultCall} is online on ${freqInp.value || getActiveCenter().freq}, monitor center frequency.`]
+  ];
+  const phraseGrid = document.getElementById('phraseGrid');
+  PHRASES.forEach(([label, gen]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'phraseBtn';
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      txTextInp.value = gen();
+      txTextInp.focus();
+    });
+    phraseGrid.appendChild(b);
+  });
+
+  /* ===== Interactive Radar Scope Rendering ===== */
+  function setRange(r) {
+    scopeRange = r;
+    document.querySelectorAll('#rangeBtns .rngBtn[data-rng]').forEach(b => {
+      b.classList.toggle('on', String(b.dataset.rng) === String(r));
+    });
+  }
+  document.querySelectorAll('#rangeBtns .rngBtn[data-rng]').forEach(b => {
+    b.addEventListener('click', () => setRange(b.dataset.rng === 'world' ? 'world' : Number(b.dataset.rng)));
+  });
+  document.getElementById('centerScopeBtn').addEventListener('click', () => {
+    const c = getActiveCenter();
+    scopeLat = c.lat;
+    scopeLon = c.lon;
+  });
+
+  let drag = null;
+  const hitTargets = [];
+  radarCanvas.addEventListener('pointerdown', e => {
+    drag = { x: e.clientX, y: e.clientY, lat0: scopeLat, lon0: scopeLon, moved: false };
+    radarCanvas.setPointerCapture(e.pointerId);
+  });
+  radarCanvas.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.hypot(dx, dy) > 4) drag.moved = true;
+    const rect = radarCanvas.getBoundingClientRect();
+    const minDim = Math.max(200, Math.min(rect.width, rect.height));
+    if (scopeRange === 'world') {
+      scopeLon = Math.max(-180, Math.min(180, drag.lon0 - (dx / rect.width) * 360));
+      scopeLat = Math.max(-80, Math.min(80, drag.lat0 + (dy / rect.height) * 160));
+    } else {
+      const nmPerPx = (scopeRange * 2) / minDim;
+      const cosLat = Math.max(0.2, Math.cos(scopeLat * Math.PI / 180));
+      scopeLat = Math.max(-85, Math.min(85, drag.lat0 + (dy * nmPerPx) / 60));
+      scopeLon = ((drag.lon0 - (dx * nmPerPx) / (60 * cosLat) + 540) % 360) - 180;
+    }
+  });
+  radarCanvas.addEventListener('pointerup', e => {
+    if (drag && !drag.moved) {
+      const rect = radarCanvas.getBoundingClientRect();
+      const px = e.clientX - rect.left, py = e.clientY - rect.top;
+      let best = null, bd = 26;
+      for (const h of hitTargets) {
+        const d = Math.hypot(h.x - px, h.y - py);
+        if (d < bd) { bd = d; best = h.id; }
+      }
+      selectedPilotId = best;
+      updateTargetLabel();
+      renderStrips();
+    }
+    drag = null;
+  });
+  radarCanvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const ladder = [20, 40, 80, 150, 300, 600, 1200, 'world'];
+    let idx = ladder.findIndex(v => v === scopeRange);
+    if (idx < 0) idx = 3;
+    idx = Math.max(0, Math.min(ladder.length - 1, idx + (e.deltaY > 0 ? 1 : -1)));
+    setRange(ladder[idx]);
+  }, { passive: false });
+
+  function project(lat, lon, W, H) {
+    if (scopeRange === 'world') {
+      const x = ((lon + 180) / 360) * W;
+      const y = ((90 - lat) / 180) * H;
+      return { x, y, distNm: 0 };
+    }
+    const minDim = Math.min(W, H);
+    const pxPerNm = (minDim * 0.46) / scopeRange;
+    const cosLat = Math.max(0.2, Math.cos(scopeLat * Math.PI / 180));
+    let dLon = lon - scopeLon;
+    if (dLon > 180) dLon -= 360;
+    if (dLon < -180) dLon += 360;
+    const dxNm = dLon * 60 * cosLat;
+    const dyNm = (lat - scopeLat) * 60;
+    return {
+      x: W / 2 + dxNm * pxPerNm,
+      y: H / 2 - dyNm * pxPerNm,
+      distNm: Math.hypot(dxNm, dyNm)
+    };
+  }
+
+  let sweepAngle = 0;
+  function drawScope() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = radarCanvas.clientWidth || 600;
+    const H = radarCanvas.clientHeight || 460;
+    if (radarCanvas.width !== Math.round(W * dpr) || radarCanvas.height !== Math.round(H * dpr)) {
+      radarCanvas.width = Math.round(W * dpr);
+      radarCanvas.height = Math.round(H * dpr);
+    }
+    rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    rctx.fillStyle = '#050a12';
+    rctx.fillRect(0, 0, W, H);
+
+    const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.46;
+    const ctr = getActiveCenter();
+
+    // Subtle grid / range rings
+    if (scopeRange === 'world') {
+      rctx.strokeStyle = 'rgba(34,211,238,0.09)';
+      rctx.lineWidth = 1;
+      for (let lat = -60; lat <= 60; lat += 30) {
+        const p = project(lat, 0, W, H);
+        rctx.beginPath(); rctx.moveTo(0, p.y); rctx.lineTo(W, p.y); rctx.stroke();
+      }
+      for (let lon = -150; lon <= 180; lon += 30) {
+        const p = project(0, lon, W, H);
+        rctx.beginPath(); rctx.moveTo(p.x, 0); rctx.lineTo(p.x, H); rctx.stroke();
+      }
+    } else {
+      rctx.strokeStyle = 'rgba(52,211,153,0.16)';
+      rctx.lineWidth = 1;
+      for (const f of [0.25, 0.5, 0.75, 1]) {
+        rctx.beginPath();
+        rctx.arc(cx, cy, R * f, 0, Math.PI * 2);
+        rctx.stroke();
+        rctx.fillStyle = 'rgba(130,153,181,0.55)';
+        rctx.font = '10px monospace';
+        rctx.fillText(Math.round(scopeRange * f) + 'NM', cx + 4, cy - R * f + 11);
+      }
+      // Crosshairs + compass ticks
+      rctx.strokeStyle = 'rgba(34,211,238,0.10)';
+      rctx.beginPath();
+      rctx.moveTo(cx - R, cy); rctx.lineTo(cx + R, cy);
+      rctx.moveTo(cx, cy - R); rctx.lineTo(cx, cy + R);
+      rctx.stroke();
+
+      // Active Center boundary ring
+      if (ctr.id !== 'GLOBAL') {
+        const cp = project(ctr.lat, ctr.lon, W, H);
+        const pxPerNm = R / scopeRange;
+        rctx.save();
+        rctx.strokeStyle = 'rgba(34,211,238,0.45)';
+        rctx.setLineDash([6, 5]);
+        rctx.lineWidth = 1.5;
+        rctx.beginPath();
+        rctx.arc(cp.x, cp.y, (ctr.rangeNm || 180) * pxPerNm, 0, Math.PI * 2);
+        rctx.stroke();
+        rctx.restore();
+      }
+
+      // Sweep line
+      sweepAngle = (sweepAngle + 0.012) % (Math.PI * 2);
+      const sg = rctx.createLinearGradient(cx, cy, cx + Math.cos(sweepAngle) * R, cy + Math.sin(sweepAngle) * R);
+      sg.addColorStop(0, 'rgba(52,211,153,0.28)');
+      sg.addColorStop(1, 'rgba(52,211,153,0.03)');
+      rctx.strokeStyle = sg;
+      rctx.lineWidth = 2;
+      rctx.beginPath();
+      rctx.moveTo(cx, cy);
+      rctx.lineTo(cx + Math.cos(sweepAngle) * R, cy + Math.sin(sweepAngle) * R);
+      rctx.stroke();
+    }
+
+    // Airports
+    rctx.font = '600 10px monospace';
+    for (const [icao, lat, lon] of AIRPORTS) {
+      const p = project(lat, lon, W, H);
+      if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) continue;
+      const hi = ctr.airports && ctr.airports.includes(icao);
+      rctx.strokeStyle = hi ? 'rgba(56,189,248,0.8)' : 'rgba(100,116,139,0.5)';
+      rctx.fillStyle = hi ? '#7dd3fc' : '#64748b';
+      rctx.lineWidth = 1.2;
+      rctx.beginPath();
+      rctx.arc(p.x, p.y, hi ? 3.5 : 2.5, 0, Math.PI * 2);
+      rctx.stroke();
+      rctx.fillText(icao, p.x + 6, p.y + 3);
+    }
+
+    // Aircraft targets
+    hitTargets.length = 0;
+    for (const p of pilots.values()) {
+      if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+      const pt = project(p.lat, p.lon, W, H);
+      if (pt.x < -30 || pt.x > W + 30 || pt.y < -30 || pt.y > H + 30) continue;
+      hitTargets.push({ id: p.id, x: pt.x, y: pt.y });
+
+      const inSec = pilotInCenter(p, ctr);
+      const isSel = selectedPilotId === p.id;
+      const col = isSel ? '#fbbf24' : (inSec ? '#34d399' : '#64748b');
+      const hRad = ((p.hdg || 0) * Math.PI) / 180;
+      const kt = Math.round((p.spd || 0) * 1.94384);
+      const leaderLen = Math.max(12, Math.min(38, kt * 0.1));
+
+      // Heading vector leader
+      rctx.strokeStyle = col;
+      rctx.lineWidth = isSel ? 2 : 1.4;
+      rctx.beginPath();
+      rctx.moveTo(pt.x, pt.y);
+      rctx.lineTo(pt.x + Math.sin(hRad) * leaderLen, pt.y - Math.cos(hRad) * leaderLen);
+      rctx.stroke();
+
+      // Target symbol
+      if (isSel) {
+        rctx.strokeStyle = '#fbbf24';
+        rctx.lineWidth = 1.4;
+        rctx.beginPath();
+        rctx.arc(pt.x, pt.y, 12, 0, Math.PI * 2);
+        rctx.stroke();
+      }
+      rctx.fillStyle = col;
+      rctx.fillRect(pt.x - 4, pt.y - 4, 8, 8);
+
+      // Data block
+      const altFt = Math.round((p.alt || 0) * 3.28084);
+      const fl = altFt >= 10000 ? 'FL' + String(Math.round(altFt / 100)).padStart(3, '0') : altFt + 'FT';
+      const vsFpm = Math.round((p.vs || 0) * 196.85);
+      const vsSym = vsFpm > 180 ? '↑' : vsFpm < -180 ? '↓' : '';
+      rctx.font = 'bold 11px monospace';
+      rctx.fillStyle = col;
+      rctx.fillText(p.callsign + (p.flying ? '' : ' [MENU]'), pt.x + 10, pt.y - 4);
+      rctx.font = '10px monospace';
+      rctx.fillStyle = isSel ? '#fde68a' : (inSec ? '#a7f3d0' : '#94a3b8');
+      rctx.fillText(`${fl}${vsSym} ${kt}KT ${(p.modelId || '737').toUpperCase()}`, pt.x + 10, pt.y + 9);
+    }
+
+    requestAnimationFrame(drawScope);
+  }
+  requestAnimationFrame(drawScope);
+
+  applyCenterSelection(true);
+  connect();
+})();
+</script>
+</body>
+</html>

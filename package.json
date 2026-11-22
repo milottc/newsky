@@ -1,0 +1,16 @@
+{
+  "name": "skydeck-737-pro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SkyDeck 737 Pro - browser-based Boeing 737-800 flight simulator",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "node --check server.js",
+    "lint": "node --check server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.23.0"
+  }
+}
