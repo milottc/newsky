@@ -5733,8 +5733,14 @@ paintTitle=function(g,L,W,H){
  }else paintTypedTitle(g,L,W,H);
 };
 const c3=a=>new BABYLON.Color3(a[0],a[1],a[2]),css=a=>'rgb('+a.map(v=>Math.round(v*255)).join(',')+')';
-M.fus=M.body.clone('fusM');M.tail=M.accent.clone('tailM');
-fuselage.material=M.fus;fin.material=M.tail;
+M.fus=M.body.clone('fusM');
+M.fus.alpha = 1;
+M.fus.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_OPAQUE;
+M.fus.disableDepthWrite = false;
+
+M.tail=M.accent.clone('tailM');
+fuselage.material=M.fus;
+fin.material=M.tail;
 const FUS_W=512*LIVERY_OPTIONS.textureScale,FUS_H=2048*LIVERY_OPTIONS.textureScale;
 const fusTex=new BABYLON.DynamicTexture('fusTex',{width:FUS_W,height:FUS_H},scene,true);
 fusTex.anisotropicFilteringLevel=8;
