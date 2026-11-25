@@ -1053,8 +1053,46 @@ function vert(name,st,mat,par){
   m.material=mat;m.isPickable=false;m.parent=par||exteriorRoot;
   m.hasVertexAlpha=false;m.useVertexColors=false;m.visibility=1;return m;
 }
+/* Smoothly resample body stations along z with a monotone cubic (no overshoot), so
+   fuselages read as one continuous curved skin instead of straight-sided segments. */
+function _smoothStations(st){
+  const D={w:1,h:1,yo:0,flat:0};
+  const S=st.map(s=>({...D,...s})).filter(s=>isFinite(s.z)&&isFinite(s.r));
+  if(S.length<3)return S;
+  const keys=['r','w','h','yo','flat'],n=S.length;
+  const slopes={};
+  for(const k of keys){
+    const d=[],m=new Array(n).fill(0);
+    for(let i=0;i<n-1;i++){const dz=S[i+1].z-S[i].z;d.push(dz?(S[i+1][k]-S[i][k])/dz:0);}
+    m[0]=d[0];m[n-1]=d[n-2];
+    for(let i=1;i<n-1;i++){
+      if(d[i-1]*d[i]<=0){m[i]=0;continue;}
+      const h0=S[i].z-S[i-1].z,h1=S[i+1].z-S[i].z,w1=2*h1+h0,w2=h1+2*h0;
+      m[i]=(w1+w2)/(w1/d[i-1]+w2/d[i]);
+    }
+    slopes[k]=m;
+  }
+  const out=[S[0]];
+  for(let i=0;i<n-1;i++){
+    const a=S[i],b=S[i+1],hz=b.z-a.z,steps=Math.max(1,Math.min(8,Math.ceil(Math.abs(hz)/.45)));
+    for(let j=1;j<=steps;j++){
+      const t=j/steps,t2=t*t,t3=t2*t;
+      const h00=2*t3-3*t2+1,h10=t3-2*t2+t,h01=-2*t3+3*t2,h11=t3-t2;
+      const p={z:a.z+hz*t};
+      for(const k of keys)p[k]=h00*a[k]+h10*hz*slopes[k][i]+h01*b[k]+h11*hz*slopes[k][i+1];
+      p.r=Math.max(0,p.r);p.flat=Math.max(0,Math.min(.9,p.flat));
+      out.push(p);
+    }
+  }
+  /* close pointed noses / tail cones so the tip has no hole (open intakes stay open) */
+  const maxR=Math.max(...out.map(s=>s.r));
+  const capEnd=(e,nb,push)=>{if(e.r>0&&e.r<maxR*.12){const dz=e.z-nb.z;const c={...e,r:0,z:e.z+Math.sign(dz||1)*Math.min(.06,e.r*.35)};push(c);}};
+  capEnd(out[0],out[1],c=>out.unshift(c));
+  capEnd(out[out.length-1],out[out.length-2],c=>out.push(c));
+  return out;
+}
 function tubeSmooth(name,st,mat,par){
-  const P=48,secs=st.map(s=>{
+  const P=64,secs=_smoothStations(st).map(s=>{
     const r=[];for(let i=0;i<P;i++){const a=(i/P)*Math.PI*2;
       let yy=Math.sin(a)*s.r*s.h;const cosv=Math.cos(a);let xx=cosv*s.r*s.w;
       if(yy<0)yy*=1-s.flat*Math.abs(cosv);
@@ -1065,7 +1103,7 @@ function tubeSmooth(name,st,mat,par){
   m.hasVertexAlpha=false;m.useVertexColors=false;m.visibility=1;return m;
 }
 
-const fuselage=tubeSmooth('fuselage',[
+const FUS737_STATIONS=[
   {z:18.0,r:.15,w:1,h:1.0,yo:.02,flat:.2},{z:17.0,r:.75,w:1,h:1.05,yo:-.02,flat:.15},
   {z:16.0,r:1.15,w:1,h:1.08,yo:-.05,flat:.15},{z:14.5,r:1.60,w:1,h:1.10,yo:-.10,flat:.15},
   {z:12.0,r:1.85,w:1,h:1.10,yo:-.10,flat:.15},{z:9.0,r:1.95,w:1,h:1.08,yo:-.05,flat:.12},
@@ -1074,16 +1112,15 @@ const fuselage=tubeSmooth('fuselage',[
   {z:-13.0,r:1.45,w:1,h:1.12,yo:.10,flat:.15},{z:-15.0,r:1.05,w:1,h:1.20,yo:.20,flat:.15},
   {z:-16.5,r:.65,w:1,h:1.35,yo:.35,flat:.1},{z:-17.5,r:.30,w:1,h:1.55,yo:.45,flat:.1},
   {z:-18.2,r:.08,w:1,h:1.7,yo:.5,flat:.1}
-],M.body);
+];
+const fuselage=tubeSmooth('fuselage',FUS737_STATIONS,M.body);
 
 // Sculpted 6-pane wraparound Boeing 737 cockpit windshield + hollow frames + authentic interior flight deck bay
 const cpGlass=new BABYLON.TransformNode('cpGlassGrp',scene);
 cpGlass.parent=exteriorRoot;
 {
-  const fus737St=[
-    {z:18.0,r:.15,w:1,h:1.0,yo:.02},{z:17.0,r:.75,w:1,h:1.05,yo:-.02},
-    {z:16.0,r:1.15,w:1,h:1.08,yo:-.05},{z:14.5,r:1.60,w:1,h:1.10,yo:-.10}
-  ];
+  /* follow the same smoothed skin the fuselage mesh is built from, so panes sit flush */
+  const fus737St=_smoothStations(FUS737_STATIONS).filter(p=>p.z>=14.5);
   const sampleFus=(z)=>{
     for(let i=0;i<fus737St.length-1;i++){
       const a=fus737St[i],b=fus737St[i+1];
@@ -11688,7 +11725,9 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
       panes:{z:32,k:1.4},lip:[.85,.1,.1]
     };
   })();
-    function surfHW(st,z,y){
+    function surfHW(st0,z,y){
+    /* sample the same smoothed skin tubeSmooth builds, so windows/doors sit flush on it */
+    const C=surfHW._c||(surfHW._c=new WeakMap());let st=C.get(st0);if(!st){st=_smoothStations(st0);C.set(st0,st);}
     for(let i=0;i<st.length-1;i++){
       const a=st[i],b=st[i+1],hi=Math.max(a.z,b.z),lo=Math.min(a.z,b.z);
       if(z<=hi&&z>=lo&&hi>lo){
