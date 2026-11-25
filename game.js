@@ -5811,7 +5811,8 @@ fuselage.material=M.fus;fin.material=M.tail;
 const FUS_W=512*LIVERY_OPTIONS.textureScale,FUS_H=2048*LIVERY_OPTIONS.textureScale;
 const fusTex=new BABYLON.DynamicTexture('fusTex',{width:FUS_W,height:FUS_H},scene,true);
 fusTex.hasAlpha=false;
-fusTex.anisotropicFilteringLevel=8;
+fusTex.anisotropicFilteringLevel=16;
+M.fus.clearCoat.intensity=.95;M.fus.clearCoat.roughness=.04;M.fus.environmentIntensity=1.1;
 const embs=[]; // No decorative discs obscuring the airline tail.
 const nameTex=new BABYLON.DynamicTexture('nameTex',{width:3072,height:384},scene,true);
 nameTex.anisotropicFilteringLevel=8;nameTex.hasAlpha=true;
@@ -5840,10 +5841,10 @@ let curLiv=0;
 const rgba=(a,al)=>'rgba('+a.map(v=>Math.round(v*255)).join(',')+','+al+')';
 const finTex=new BABYLON.DynamicTexture('finTex',{width:1024,height:1024},scene,true);
 finTex.hasAlpha=false;
-finTex.anisotropicFilteringLevel=8;
+finTex.anisotropicFilteringLevel=16;
 const wingletTex=new BABYLON.DynamicTexture('wingletTex',{width:512,height:512},scene,true);
 wingletTex.hasAlpha=false;
-wingletTex.anisotropicFilteringLevel=8;
+wingletTex.anisotropicFilteringLevel=16;
 const WORDMARK_TAILS=new Set(['SAS','SPIRIT','EASYJET']);
 const REG_PREFIX={LUFTHANSA:'D-AIN',EMIRATES:'A6-EO',QANTAS:'VH-VY','AIR CANADA':'C-FSD',DELTA:'N374D',RYANAIR:'EI-DW',WESTJET:'C-GWS',SOUTHWEST:'N862W','BRITISH AIRWAYS':'G-EUP',SWISS:'HB-JL','CATHAY PACIFIC':'B-KPA','KLM ROYAL DUTCH AIRLINES':'PH-BX','AIR FRANCE':'F-GKX',AMERICAN:'N912A',UNITED:'N275U','SINGAPORE AIRLINES':'9V-SM',ANA:'JA81A','JAPAN AIRLINES':'JA34J','KOREAN AIR':'HL80',ETIHAD:'A6-BL','QATAR AIRWAYS':'A7-BC','TURKISH AIRLINES':'TC-JH',IBERIA:'EC-MX',SAS:'SE-DO',FINNAIR:'OH-LX',NORWEGIAN:'LN-NG',EASYJET:'G-EZW','AIR NEW ZEALAND':'ZK-NZ',LATAM:'CC-BA',ALASKA:'N539A',JETBLUE:'N708J',THAI:'HS-TK',MALAYSIA:'9M-MX','CHINA EASTERN':'B-172','AIR CHINA':'B-568',AEROFLOT:'RA-73',LOT:'SP-LV','AER LINGUS':'EI-DE',HAWAIIAN:'N218H',TUI:'G-TUI',SPIRIT:'N648N','VIETNAM AIRLINES':'VN-A8'};
 function paintFuselageSurface(g,W,H,L,idx,withWindows){
@@ -14965,6 +14966,7 @@ void main(){
   try{put('updateChips',updateChips);}catch(e){}
   try{window._setWxPreset=k=>{if(WEATHER[k]){currentWeather=WEATHER[k];const sel=document.getElementById('wxSel');if(sel)sel.value=k;applyEnvironment();applyWeatherVisuals();updateChips();}};}catch(e){}
 })();
+} /* end main */
 
 (function(){const prevTD=window._onTouchdown;window._onTouchdown=(sink,hs,noGear,water)=>{try{prevTD&&prevTD(sink,hs,noGear,water);}catch(e){}try{if(!noGear&&!water)window._ambThump&&window._ambThump(Math.min(1,sink/8));}catch(e){}};})();
 
