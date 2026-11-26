@@ -1022,6 +1022,24 @@ M.winglet=M.accent.clone('wingletM');
 _forceOpaquePBR(M.winglet);
 try{M.body.clearCoat.isEnabled=true;M.body.clearCoat.intensity=.85;M.body.clearCoat.roughness=.06;}catch(e){}
 
+/* Material.clone() deep-copies DynamicTextures, and those copies are never uploaded to the GPU, so the
+   cloned material never becomes ready and Babylon silently skips the mesh. That is what made the 737
+   fuselage and nacelles (and other airliners' bodies) invisible. Re-point cloned materials at the
+   original, uploaded texture with the same name. Runs once now and again whenever materials appear. */
+function _healClonedDynTextures(){
+  const orig=new Map();
+  for(const t of scene.textures){if(t instanceof BABYLON.DynamicTexture&&t.isReady()&&!orig.has(t.name))orig.set(t.name,t);}
+  for(const m of scene.materials){
+    for(const slot of ['albedoTexture','bumpTexture','emissiveTexture','diffuseTexture','metallicTexture','opacityTexture']){
+      const t=m[slot];
+      if(t&&t instanceof BABYLON.DynamicTexture&&!t.isReady()){const o=orig.get(t.name);
+        if(o&&o!==t){m[slot]=o;try{t.dispose();}catch(e){}}
+        else{try{t.update(false);}catch(e){}}}
+    }
+  }
+}
+window._healClonedDynTextures=_healClonedDynTextures;
+scene.onAfterRenderObservable.add((()=>{let n=0;return()=>{if((++n)%90===1)try{_healClonedDynTextures();}catch(e){}};})());
 const aircraftRoot=new BABYLON.TransformNode('acRoot',scene);
 aircraftRoot.rotationQuaternion=BABYLON.Quaternion.Identity();
 const exteriorRoot=new BABYLON.TransformNode('extRoot',scene);
@@ -1380,7 +1398,7 @@ for(const sgn of [1,-1]){
     const pivot=new BABYLON.TransformNode('splPv'+key,scene);
     pivot.parent=exteriorRoot;pivot.position.set(sgn*(7+i*2.6),.6+i*.15,-.5);
     const sp=BABYLON.MeshBuilder.CreateBox('spl'+key,{width:2.2,height:.06,depth:1.3},scene);
-    sp.material=M.dark;sp.parent=pivot;sp.position.set(0,0,-.65);
+    sp.material=M.wing;// spoiler panels are painted wing grey, not blacksp.parent=pivot;sp.position.set(0,0,-.65);
     SURF.spoilerPivots[key]=pivot;
   }
 }
@@ -1407,6 +1425,10 @@ function mk_wheel(n,par,x,y,z,r){
   const taxiLamp=BABYLON.MeshBuilder.CreateSphere('nTaxiL',{diameter:.22,segments:10},scene);
   taxiLamp.position.set(0,-.95,.18);taxiLamp.material=M.white;taxiLamp.parent=p;
   mk_wheel('nW1',p,-.4,-1.9,0,.52);mk_wheel('nW2',p,.4,-1.9,0,.52);
+  const nDrag=BABYLON.MeshBuilder.CreateCylinder('nDrag',{height:1.15,diameter:.09,tessellation:8},scene);
+  nDrag.position.set(0,-.55,-.4);nDrag.rotation.x=-.65;nDrag.material=M.metal;nDrag.parent=p;nDrag.isPickable=false;
+  const nSteer=BABYLON.MeshBuilder.CreateTorus('nSteer',{diameter:.42,thickness:.07,tessellation:16},scene);
+  nSteer.position.y=-1.1;nSteer.material=M.metal;nSteer.parent=p;nSteer.isPickable=false;
   gearPivots.nose=p;gearInitialY.nose=p.position.y;
 }
 for(const sgn of [1,-1]){
@@ -1423,6 +1445,15 @@ for(const sgn of [1,-1]){
   const door=BABYLON.MeshBuilder.CreateBox('mDoor'+key,{width:.09,height:1.25,depth:1.6},scene);
   door.position.set(sgn*.68,-.65,0);door.material=M.body;door.parent=p;
   mk_wheel('mW'+key+'1',p,-.55,-2.1,0,.58);mk_wheel('mW'+key+'2',p,.55,-2.1,0,.58);
+  // side stay (to the wing spar, inboard), forward drag brace and retraction actuator
+  const side=BABYLON.MeshBuilder.CreateCylinder('mSide'+key,{height:1.25,diameter:.1,tessellation:8},scene);
+  side.position.set(-sgn*.42,-.5,0);side.rotation.z=-sgn*.72;side.material=M.metal;side.parent=p;side.isPickable=false;
+  const drag=BABYLON.MeshBuilder.CreateCylinder('mDrag'+key,{height:1.1,diameter:.09,tessellation:8},scene);
+  drag.position.set(0,-.55,.35);drag.rotation.x=.62;drag.material=M.metal;drag.parent=p;drag.isPickable=false;
+  const act=BABYLON.MeshBuilder.CreateCylinder('mAct'+key,{height:.9,diameter:.13,tessellation:10},scene);
+  act.position.set(-sgn*.2,-.3,-.25);act.rotation.set(-.3,0,-sgn*.35);act.material=M.dark;act.parent=p;act.isPickable=false;
+  for(const wx of [-.55,.55]){const disc=BABYLON.MeshBuilder.CreateCylinder('mBrk'+key+wx,{height:.39,diameter:.62,tessellation:16},scene);
+    disc.rotation.z=Math.PI/2;disc.position.set(wx,-2.1,0);disc.material=M.dark;disc.parent=p;disc.isPickable=false;}
   gearPivots[key]=p;gearInitialY[key]=p.position.y;
 }
 
@@ -3231,7 +3262,8 @@ for(const s of [-1,1]){
     else polys=[[[.10,.53],[.18,.22],[.82,.22],[.86,.53]]];
     const mir=i<0;
     const pts=P=>P.map(([u,v])=>[(mir?1-u:u)*W,v*H]);
-    c.globalCompositeOperation='destination-out';
+    // cut the window openings fully: destination-out removes by the SOURCE alpha, so use an opaque fill
+    c.globalCompositeOperation='destination-out';c.fillStyle='#000';
     for(const P of polys){const q=pts(P);c.beginPath();c.moveTo(q[0][0],q[0][1]);for(let k=1;k<q.length;k++)c.lineTo(q[k][0],q[k][1]);c.closePath();c.fill();}
     c.globalCompositeOperation='source-over';c.strokeStyle='#14181e';c.lineWidth=11;c.lineJoin='round';
     for(const P of polys){const q=pts(P);c.beginPath();c.moveTo(q[0][0],q[0][1]);for(let k=1;k<q.length;k++)c.lineTo(q[k][0],q[k][1]);c.closePath();c.stroke();}
@@ -3760,8 +3792,14 @@ function updateSurfaceVisuals(dt=1/60){
   if(SURF.elevPivots.R)SURF.elevPivots.R.rotation.x=elA;
   if(SURF.elevPivots.L)SURF.elevPivots.L.rotation.x=elA;
   if(SURF.rudPivot)SURF.rudPivot.rotation.y=plane.rudder*.5+plane.rudTrim*.2;
-  const gAngle = (1 - plane.gearPos) * -Math.PI/2 * 0.92;
-  for(const k in gearPivots) gearPivots[k].rotation.x = gAngle;
+  /* 737 gear kinematics: nose leg folds forward, main legs fold sideways inboard into the belly wells.
+     Eased (slow start/stop) like a hydraulic actuator; mains lag the nose slightly. */
+  const ease=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
+  const gp=plane.gearPos;
+  for(const k in gearPivots){
+    if(k==='nose'){gearPivots[k].rotation.x=(1-ease(gp))*-Math.PI/2*0.92;gearPivots[k].rotation.z=0;}
+    else{const sgn=k==='R'?1:-1,e=ease((gp-.08)/.92);gearPivots[k].rotation.x=0;gearPivots[k].rotation.z=-sgn*(1-e)*Math.PI/2*0.96;}
+  }
   for(const k in SURF.spoilerPivots) SURF.spoilerPivots[k].rotation.x = -plane.spoilerVisual*Math.PI/3.2;
   for(const rd of reverserDoors){
     /* nose is +z, so the translating sleeve must travel toward -z (aft) when deployed */
@@ -9399,17 +9437,33 @@ const atc=(function(){
   /* who: 'p' = you, 'a' = controller, 'o' = other (AI) pilot on frequency */
   let _voices=[];const _pickVoices=()=>{try{_voices=(speechSynthesis.getVoices()||[]).filter(v=>/^en/i.test(v.lang));}catch(e){}};
   try{_pickVoices();speechSynthesis.addEventListener&&speechSynthesis.addEventListener('voiceschanged',_pickVoices);}catch(e){}
-  const say=(who,txt)=>{const d=document.createElement('div');d.className=who==='p'?'p':'a';
+  // "CYYZ Tower" -> "Toronto Pearson Tower" using the airport list on the home screen
+  const _facCache={};
+  const facility=c=>{if(_facCache[c]!==undefined)return _facCache[c];let nm='';
+    try{const o=[...document.querySelectorAll('#locSelect option')].find(o=>String(o.value).split(',').pop()===c);
+      if(o)nm=o.textContent.replace(/\(.*?\)/g,'').replace(/\b(International|Intl\.?|Airport|Regional|Municipal|Field)\b/gi,'').replace(/\s+/g,' ').trim();}catch(e){}
+    return _facCache[c]=nm||c;};
+  const naturalize=t=>{const c=code();return c&&c!=='UNKN'?t.replace(new RegExp('\\b'+c+' (Tower|Ground|Delivery|Approach|Departure|ATIS|Radar)\\b','g'),(m,u)=>facility(c)+' '+u):t;};
+  // speak numbers like a controller: 340 -> "three four zero", 9 -> "niner", 124.250 -> "one two four decimal two five"
+  const DIG=['zero','one','two','three','four','five','six','seven','eight','niner'];
+  const speakable=t=>t.replace(/(\d+)\.(\d+)/g,(m,a,b)=>a.split('').map(d=>DIG[d]).join(' ')+' decimal '+b.replace(/0+$/,'').split('').map(d=>DIG[d]).join(' '))
+    .replace(/\b(\d{1,2}),?000\b/g,(m,a)=>a.split('').map(d=>DIG[d]).join(' ')+' thousand')
+    .replace(/\b(\d+)00\b(?= feet)/g,(m,a)=>a.split('').map(d=>DIG[d]).join(' ')+' hundred')
+    .replace(/\b\d{2,}\b/g,m=>m.split('').map(d=>DIG[d]).join(' '))
+    .replace(/\b9\b/g,'niner');
+  const say=(who,txt)=>{if(who!=='p')txt=naturalize(txt);const d=document.createElement('div');d.className=who==='p'?'p':'a';
     if(who==='o'){d.style.color='#93c5fd';d.style.fontWeight='500';}
     d.textContent=(who==='p'?'▶ '+st.cs+': ':who==='o'?'◇ ':'◀ ')+txt;log.appendChild(d);
     while(log.childNodes.length>160)log.removeChild(log.firstChild);
     log.scrollTop=log.scrollHeight;
-    if(who!=='p'&&st.voice&&window.speechSynthesis&&!(_sfxCur&&!_sfxCur.paused&&!_sfxCur.ended)){try{
+    if(st.voice&&window.speechSynthesis&&!(_sfxCur&&!_sfxCur.paused&&!_sfxCur.ended)){try{
       if(who==='o'&&speechSynthesis.pending)return; // never let chatter pile up behind real clearances
-      const u=new SpeechSynthesisUtterance(txt);u.rate=who==='o'?1.18:1.08;u.pitch=who==='o'?.85+Math.random()*.4:1;
-      if(_voices.length)u.voice=who==='o'?_voices[(Math.random()*_voices.length)|0]:_voices[0];
-      if(who==='a')playSquelch();
-      speechSynthesis.speak(u);}catch(e){}}};
+      const u=new SpeechSynthesisUtterance(speakable(txt));
+      u.rate=who==='o'?1.18:who==='p'?1.12:1.08;u.pitch=who==='o'?.85+Math.random()*.4:who==='p'?.9:1;u.volume=who==='p'?.75:1;
+      if(_voices.length)u.voice=who==='o'?_voices[(Math.random()*_voices.length)|0]:who==='p'?_voices[Math.min(1,_voices.length-1)]:_voices[0];
+      playSquelch();u.onend=()=>playSquelch();
+      speechSynthesis.speak(u);}catch(e){}}
+    try{highlightNext();}catch(e){}};
   const code=()=>(currentLocation.code||'UNKN');
   const rwy=()=>{const R=RUNWAYS[(currentLocation&&currentLocation.code)||''];if(R&&R.des)return R.des[0];let h=Math.round(runwayHdgDeg/10)%36;if(h===0)h=36;return String(h).padStart(2,'0');};
   const wind=()=>{const w=currentWeather||{wind:5};return String(((Math.round(runwayHdgDeg/10)*10+((w.wind*7)%40)-20+360)%360)||360).padStart(3,'0')+' at '+Math.max(2,Math.round(w.wind*1.94));};
@@ -9466,7 +9520,16 @@ const atc=(function(){
     const who=best.t.atcCallsign?(best.t.airline||'')+', Boeing 737':'a heavy jet';
     return st.cs+', traffic, '+clk+' o\'clock, '+(best.d/1852).toFixed(1)+' miles, '+dir+', '+alt+', '+who+'.';};
   const btns=[['atis','ATIS',acts.atis],['ifr','Clearance delivery',acts.ifr],['push','Pushback / startup',acts.push],['taxi','Taxi',acts.taxi],['lu','Line up & wait',acts.lineup],['tk','Takeoff',acts.tkoff],['v','Vectors / approach',acts.vec],['l','Landing',acts.land],['g','Go around',acts.go],['t','Traffic',acts.tfc],['e','MAYDAY',acts.emg]];
-  const bb=document.getElementById('atcB');btns.forEach(b=>{const e=document.createElement('button');e.textContent=b[1];e.addEventListener('click',b[2]);bb.appendChild(e);});
+  const bb=document.getElementById('atcB');const btnEls={};
+  btns.forEach(b=>{const e=document.createElement('button');e.textContent=b[1];e.addEventListener('click',b[2]);bb.appendChild(e);btnEls[b[0]]=e;});
+  // Suggest the next radio call for the current flight phase (green outline)
+  function highlightNext(){
+    const air=!plane.onGround&&!plane.crashed;
+    const nxt=plane.crashed?'e':!air?({ramp:st.arrived?null:(st.atis?'ifr':'atis'),cleared:'push',pushed:'taxi',taxi:'lu',lineup:'tk'})[st.phase]||(st.arrived?null:'atis')
+      :(st.phase==='appr'?'l':(st.phase==='land'?null:(agl()<6000&&st.phase!=='climb'?'v':null)));
+    for(const k in btnEls){const on=k===nxt;btnEls[k].style.boxShadow=on?'0 0 0 2px #22c55e, 0 0 12px rgba(34,197,94,.55)':'';btnEls[k].title=on?'Suggested next call':'';}
+  }
+  setInterval(()=>{try{highlightNext();}catch(e){}},1500);
   const tog=()=>{
     const open=!box.classList.contains('show');
     if(open&&window._closeAllHudDrawers)window._closeAllHudDrawers('atc');
@@ -10987,7 +11050,20 @@ scene.registerBeforeRender(()=>{
   cloudRoot.position.z=Math.round(plane.pos.z/20000)*20000;
   if(waterMesh){waterMesh.position.x=Math.round(plane.pos.x/5000)*5000;
     waterMesh.position.z=Math.round(plane.pos.z/5000)*5000;}
-  camera.minZ=camMode===1?.3:Math.min(25,Math.max(1.2,plane.pos.y/250));camera.maxZ=camMode===1?250000:300000;
+  { // Near clip grows with altitude for terrain depth precision, but must never cut into our own aircraft
+    // (it clipped away the tail / rear fuselage in chase, orbit, flyby and wing views at altitude).
+    let nearZ=Math.min(25,Math.max(1.2,plane.pos.y/250));
+    if(camMode!==1){
+      const id=window._activeModelId||'737';
+      if(!window._acRadius||window._acRadius.id!==id){
+        let rad=40;try{const root=(id==='737'||!window._modelRoots||!window._modelRoots[id])?exteriorRoot:window._modelRoots[id];
+          const bb=root.getHierarchyBoundingVectors(true);rad=Math.max(8,BABYLON.Vector3.Distance(bb.min,bb.max)*.5);}catch(e){}
+        window._acRadius={id,rad};}
+      const camD=BABYLON.Vector3.Distance(camera.position,plane.pos)-window._acRadius.rad;
+      nearZ=Math.max(.25,Math.min(nearZ,camD*.7));
+    }
+    camera.minZ=camMode===1?.3:nearZ;camera.maxZ=camMode===1?250000:300000;
+  }
 });
 
 engine.runRenderLoop(()=>scene.render());
@@ -12557,8 +12633,9 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
   let _cessYoke=null,_cessTick=0;
   function buildCessnaCockpit(K){K=K||'cessna';
     const list=[];
-    const mk=(n,c)=>{const m=new BABYLON.StandardMaterial('c172k_'+n,scene);m.diffuseColor=new BABYLON.Color3(c[0],c[1],c[2]);m.specularColor=new BABYLON.Color3(.08,.08,.08);m.specularPower=24;return m;};
-    const plastic=mk('plastic',[.10,.10,.11]),trim=mk('trim',[.30,.28,.25]),liner=mk('liner',[.46,.43,.38]),carpet=mk('carpet',[.18,.17,.16]),seat=mk('seat',[.22,.18,.14]),metal=mk('metal',[.5,.5,.52]);
+    const mk=(n,c,e)=>{const m=new BABYLON.StandardMaterial('c172k_'+n,scene);m.diffuseColor=new BABYLON.Color3(c[0],c[1],c[2]);m.specularColor=new BABYLON.Color3(.08,.08,.08);m.specularPower=24;
+      const k=e==null?.42:e;m.emissiveColor=new BABYLON.Color3(c[0]*k,c[1]*k,c[2]*k);return m;};
+    const plastic=mk('plastic',[.16,.16,.17]),trim=mk('trim',[.52,.49,.44]),liner=mk('liner',[.74,.71,.64]),carpet=mk('carpet',[.24,.23,.22]),seat=mk('seat',[.42,.32,.22]),metal=mk('metal',[.62,.63,.66]);
     metal.specularColor=new BABYLON.Color3(.5,.5,.5);
     const add=(n,w,h,d,x,y,z,mat,rot,par)=>{const m=BABYLON.MeshBuilder.CreateBox('ckf_'+K+'_'+n,{width:w,height:h,depth:d},scene);m.position.set(x,y,z);if(rot)m.rotation.set(rot[0]||0,rot[1]||0,rot[2]||0);m.material=mat;m.parent=par||aircraftRoot;m.isPickable=false;m.setEnabled(false);list.push(m);return m;};
     add('floor',1.9,.05,2.6,0,-.38,.2,carpet);add('roof',1.9,.04,2.4,0,.98,.1,liner);
@@ -12575,6 +12652,41 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
     const rim=BABYLON.MeshBuilder.CreateTorus('ckf_'+K+'_rim',{diameter:.24,thickness:.028,tessellation:24},scene);rim.rotation.x=Math.PI/2;rim.material=plastic;rim.parent=yoke;rim.setEnabled(false);list.push(rim);
     const hub=BABYLON.MeshBuilder.CreateCylinder('ckf_'+K+'_hub',{diameter:.07,height:.05,tessellation:12},scene);hub.rotation.x=Math.PI/2;hub.material=metal;hub.parent=yoke;hub.setEnabled(false);list.push(hub);
     _cessYoke=yoke;
+    /* ---- extra Cessna 172 cabin detail ---- */
+    const cyl=(n,d,h,x,y,z,mat,rot,par,dt)=>{const m=BABYLON.MeshBuilder.CreateCylinder('ckf_'+K+'_'+n,{diameter:d,diameterTop:dt==null?d:dt,height:h,tessellation:16},scene);m.position.set(x,y,z);if(rot)m.rotation.set(rot[0]||0,rot[1]||0,rot[2]||0);m.material=mat;m.parent=par||aircraftRoot;m.isPickable=false;m.setEnabled(false);list.push(m);return m;};
+    const sphM=(n,d,x,y,z,mat,par)=>{const m=BABYLON.MeshBuilder.CreateSphere('ckf_'+K+'_'+n,{diameter:d,segments:10},scene);m.position.set(x,y,z);m.material=mat;m.parent=par||aircraftRoot;m.isPickable=false;m.setEnabled(false);list.push(m);return m;};
+    if(!GL){
+      // C172 "ram's horn" yokes (captain + copilot) instead of a round wheel
+      const yokes=[yoke];
+      const yoke2=new BABYLON.TransformNode('c172_yoke2',scene);yoke2.parent=aircraftRoot;yoke2.position.set(.4,.24,.85);yokes.push(yoke2);
+      for(const [i,Y] of yokes.entries()){
+        if(i===1){const c2=cyl('col2',.045,.45,0,-.05,.2,metal,[Math.PI/2,0,0],Y);}
+        add('ybar'+i,.22,.028,.03,0,-.01,0,plastic,null,Y);
+        for(const sx of [-1,1]){cyl('yh'+i+sx,.03,.085,sx*.12,.02,0,plastic,[0,0,sx*.6],Y);sphM('yc'+i+sx,.034,sx*.145,.055,0,plastic,Y);}
+        add('ylogo'+i,.06,.03,.012,0,.0,-.026,mk('ylogo'+i,[.75,.12,.1]),null,Y);
+      }
+      list.splice(list.indexOf(rim),1);rim.dispose();
+      scene.registerBeforeRender(()=>{if(camMode!==1||activeModelId!==K)return;try{yoke2.rotation.z=_cessYoke.rotation.z;yoke2.position.z=_cessYoke.position.z;}catch(e){}});
+      // Push-pull throttle / mixture / carb heat knobs at the panel centre
+      for(const [n,x,c] of [['thrK',-.05,[.06,.06,.07]],['mixK',.05,[.75,.12,.10]],['carbK',-.15,[.06,.06,.07]]]){
+        cyl(n+'S',.014,.12,x,-.02,1.06,metal,[Math.PI/2,0,0]);
+        const kn=cyl(n,.05,.035,x,-.02,.995,mk(n+'M',c),[Math.PI/2,0,0]);
+      }
+      // Fuel selector & trim wheel between the seats
+      cyl('fuelSel',.11,.02,0,-.36,.95,mk('fuelSelM',[.45,.08,.06]));
+      cyl('trimW',.16,.025,0,-.22,.55,plastic,[0,0,Math.PI/2]);
+    }
+    // Wet compass on the glareshield, rudder pedals, door panels, sun visors
+    const compass=cyl('cmpBody',.07,.06,0,.47,1.34,plastic);cyl('cmpFace',.05,.005,0,.47,1.305,mk('cmpFaceM',[.9,.88,.8],.9),[Math.PI/2,0,0]);
+    for(const sx of [-1,1]){
+      for(const px of [-.08,.08]){add('ped'+sx+px,.07,.12,.02,sx*.4+px,-.28,1.28,metal,[-.45,0,0]);}
+      add('doorPnl'+sx,.03,.42,1.1,sx*.9,.06,.35,trim);
+      add('arm'+sx,.08,.05,.42,sx*.86,.06,.2,seat);
+      add('dHandle'+sx,.02,.025,.14,sx*.87,.2,.75,metal);
+      add('visor'+sx,.42,.01,.15,sx*.42,.955,1.12,liner,[.12,0,0]);
+      add('seatCush'+sx,.44,.06,.5,sx*.4,-.15,.02,seat);
+      for(const k of [-1,0,1])add('seatPleat'+sx+k,.04,.6,.02,sx*.4+k*.12,.1,-.235,mk('pleat'+sx+k,[.32,.24,.16]),[-.12,0,0]);
+    }
     if(GL){ // Cirrus uses a side-stick instead of a yoke wheel
       list.splice(list.indexOf(rim),1);rim.dispose();
       col.rotation.set(0,0,0);col.scaling.set(1,.62,1);col.position.set(-.3,-.1,.05);
@@ -14699,7 +14811,9 @@ void main(){
   function disposeRemoteMesh(rec){
     if(!rec)return;
     if(rec.mesh&&rec.mesh.root){
-      try{rec.mesh.root.dispose(false,true);}catch(e){try{rec.mesh.root.dispose();}catch(_){}}
+      /* clones SHARE the local aircraft's materials & textures: dispose meshes only, never the materials
+         (disposing them made our own fuselage/nacelles vanish whenever another pilot left) */
+      try{rec.mesh.root.dispose(false,false);}catch(e){}
       rec.mesh=null;
     }
     if(rec.labelEl&&rec.labelEl.parentNode){
@@ -14711,7 +14825,9 @@ void main(){
   function ensureRemoteMesh(rec){
     if(rec.mesh&&rec.mesh.modelId===rec.modelId)return;
     if(rec.mesh&&rec.mesh.root){
-      try{rec.mesh.root.dispose(false,true);}catch(e){}
+      /* clones SHARE the local aircraft's materials & textures: dispose meshes only, never the materials
+         (disposing them made our own fuselage/nacelles vanish whenever another pilot left) */
+      try{rec.mesh.root.dispose(false,false);}catch(e){}
       rec.mesh=null;
     }
     rec.mesh=cloneRemoteAircraft(rec.modelId);
