@@ -38,6 +38,8 @@ def offsets_matrix(off):
     return m
 
 def resolve(path, base):
+    if path.startswith('Aircraft/') and path.count('/') >= 2:  # FlightGear 'Aircraft/<name>/...' paths
+        path = path.split('/', 2)[2]
     for cand in (os.path.join(base, path), os.path.join(ACDIR, path), os.path.join(ACDIR, 'Models', path)):
         if os.path.exists(cand): return cand
     return None

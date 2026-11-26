@@ -5605,6 +5605,10 @@ LIVS.push(
 LIVS.push(
  {n:'AIR FRANCE',nm:'AIR FRANCE',f:'bold 96px Arial',tc:[.02,.08,.32],b:[.99,.99,.99],a:[.02,.08,.32],t:[.02,.08,.32],e:[.02,.08,.32],nac:[.02,.08,.32]},
  {n:'AMERICAN',nm:'American',f:'bold 104px Arial',tc:[.0,.2,.5],b:[.82,.84,.86],a:[.93,.94,.95],t:[.93,.94,.95],e:[.0,.2,.5],nac:[.82,.84,.86],belly:[.72,.74,.76]},
+ {n:'AMERICAN CLASSIC',nm:'AMERICAN',f:'bold 100px Arial',tc:[.75,.08,.1],b:[.80,.82,.85],a:[.75,.08,.1],t:[.80,.82,.85],e:[.80,.82,.85],nac:[.80,.82,.85],belly:[.72,.74,.77],band:[.04,.15,.45],
+  stripes:[[.58,.63,[.75,.08,.1]],[.63,.67,[1,1,1]],[.67,.72,[.04,.15,.45]]],tailText:[['A',[.75,.08,.1]],['A',[.04,.15,.45]]]},
+ {n:'FEDEX',nm:'FedEx',f:'bold 110px Arial',tc:[.30,.10,.55],b:[.99,.99,.99],a:[.30,.10,.55],t:[.30,.10,.55],e:[.99,.99,.99],nac:[.99,.99,.99],belly:[.70,.72,.76],
+  textParts:[['Fed',[.30,.10,.55]],['Ex',[1,.4,0]]]},
  {n:'UNITED',nm:'United',f:'bold 104px Arial',tc:[.0,.2,.5],b:[.99,.99,.99],a:[.0,.2,.5],t:[.0,.2,.5],e:[.9,.7,.2],nac:[.0,.2,.5]},
  {n:'SINGAPORE AIRLINES',nm:'SINGAPORE AIRLINES',f:'bold 80px Arial',tc:[.05,.12,.3],b:[.99,.99,.99],a:[.05,.12,.3],t:[.05,.12,.3],e:[.85,.7,.3],nac:[.05,.12,.3]},
  {n:'ANA',nm:'ANA',f:'bold 128px Arial',tc:[.0,.25,.55],b:[.99,.99,.99],a:[.0,.25,.55],t:[.0,.25,.55],e:[.0,.25,.55],nac:[.0,.25,.55]},
@@ -6059,10 +6063,11 @@ function paintStripe(g,xc,w,H,col){
   g.lineTo(xc-w/2,H*.07);
   g.closePath();g.fill();
 }
+window._applyLivery=i=>applyLivery(i);
 function applyLivery(i){
   curLiv=((i%LIVS.length)+LIVS.length)%LIVS.length;const L=LIVS[curLiv];
   M.body.albedoColor=c3(L.b);M.accent.albedoColor=c3(L.a);
-  const isSilver=L.n==='AMERICAN';
+  const isSilver=/^AMERICAN/.test(L.n);
   _forceOpaquePBR(M.fus);_forceOpaquePBR(M.tail);
   M.fus.metallic=isSilver?.36:.06;M.fus.roughness=isSilver?.22:.28;
   M.tail.metallic=.06;M.tail.roughness=.26;
@@ -13268,7 +13273,7 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
     window._fleetFusTex.hasAlpha=false;
     _forceOpaquePBR(M.otherFus);_forceOpaquePBR(M.otherTail);_forceOpaquePBR(M.otherNac);
     _forceOpaquePBR(M.otherWing);_forceOpaquePBR(M.otherStrA);_forceOpaquePBR(M.otherStrE);
-    const isSilver=L.n==='AMERICAN';
+    const isSilver=/^AMERICAN/.test(L.n);
     M.otherFus.albedoTexture=window._fleetFusTex;
     M.otherFus.albedoColor=BABYLON.Color3.White();
     M.otherFus.metallic=isSilver?.36:.10;M.otherFus.roughness=isSilver?.22:.24;M.otherFus.clearCoat.intensity=.92;
@@ -15604,7 +15609,9 @@ const SKY_PREFS=(function(){
    GPLv2, see assets/models/README.md). The code-built gear (animated) and lights stay; everything else of
    the code-built airframe is hidden once the model is in. If loading fails, the code-built plane remains. */
 (function(){
-  const REAL={'737':'assets/models/b738.glb',b777:'assets/models/b773.glb'};
+  const REAL={'737':'assets/models/b738.glb',b777:'assets/models/b773.glb',b747:'assets/models/b744.glb',dc10:'assets/models/dc10.glb'};
+  // Flightradar24 files face -z (turn them around); files from tools/ac2glb.py already face the sim's +z
+  const NOSE_FWD={dc10:true};
   const state={};let loaderP=null;
   const loadLoaders=()=>loaderP||(loaderP=new Promise((res,rej)=>{
     if(BABYLON.SceneLoader&&BABYLON.SceneLoader.IsPluginForExtensionAvailable&&BABYLON.SceneLoader.IsPluginForExtensionAvailable('.glb')){res();return;}
@@ -15637,9 +15644,9 @@ const SKY_PREFS=(function(){
       const pc=pb.centerWorld,gc=gb.centerWorld;
       const holder=new BABYLON.TransformNode('realAC_'+id,scene);
       glbRoot.parent=holder;
-      holder.rotation.y=Math.PI;                       // model nose points to -z; the sim's nose is +z
-      holder.scaling.setAll(k);
-      holder.position.set(pc.x+gc.x*k,pc.y-gc.y*k,pc.z+gc.z*k);
+      if(NOSE_FWD[id]){holder.scaling.setAll(k);holder.position.set(pc.x-gc.x*k,pc.y-gc.y*k,pc.z-gc.z*k);}
+      else{holder.rotation.y=Math.PI;                  // model nose points to -z; the sim's nose is +z
+        holder.scaling.setAll(k);holder.position.set(pc.x+gc.x*k,pc.y-gc.y*k,pc.z+gc.z*k);}
       holder.parent=root;
       // restore root transform
       root.parent=saved.par;root.position.copyFrom(saved.p);root.rotation.copyFrom(saved.r);if(saved.q)root.rotationQuaternion=saved.q;root.scaling.copyFrom(saved.s);
@@ -15654,7 +15661,7 @@ const SKY_PREFS=(function(){
       const keep=m=>gearNodes.some(g=>m.isDescendantOf(g))||/halo|Halo|^llg|^llcone|exhGlow|fireEm|smokeEm|TaxiL|_beacon|^nv|^st[LRT]|^bc/i.test(m.name);
       const hidden=[];
       for(const m of root.getChildMeshes()){if(m.isDescendantOf(holder)||keep(m))continue;if(m.isVisible){m.isVisible=false;hidden.push(m);}}
-      st.holder=holder;st.hidden=hidden;st.loading=false;st.ok=true;st.meshes=res.meshes;st.fus=glbF;st.liv=-1;st.on=true;
+      st.holder=holder;st.hidden=hidden;st.loading=false;st.ok=true;st.meshes=res.meshes;st.fus=glbF;st.liv=-1;st.on=true;st.id=id;
       try{window._refreshShadows&&window._refreshShadows();}catch(e){}
       console.info('real model loaded',id,'scale',k.toFixed(3),'hid',hidden.length);
     }catch(e){console.warn('real model failed, keeping code-built',id,e);st.loading=false;st.failed=true;}
@@ -15663,13 +15670,59 @@ const SKY_PREFS=(function(){
   // Livery on the real model: tail/rudder in the livery tail colour, 737 engine cowls in the nacelle colour,
   // fuselage tinted with the body colour (the models are plain white, so a tint reads as paint).
   const c3=a=>new BABYLON.Color3(a[0],a[1],a[2]);
+  /* ---- Full liveries on the real 737-800 (FlightGear UV layout) ----
+     Real FlightGear livery textures where one exists; otherwise paint one from the livery's colours onto the
+     blank FlightGear base texture: crown/cheatline/belly bands on both side strips, belly strip, engine cowls,
+     tail group, and the airline name near the nose on both sides. */
+  const FG_LIV={'DELTA':'DAL','AMERICAN':'AAL','UNITED':'UAL','KOREAN AIR':'KAL','KLM ROYAL DUTCH AIRLINES':'KLM-800','QANTAS':'QFA-800','RYANAIR':'RYR-800','TURKISH AIRLINES':'THY-800'};
+  const livCache={};let baseImg=null,basePx=null;
+  const getBase=()=>baseImg||(baseImg=new Promise((res,rej)=>{const im=new Image();im.onload=()=>{const c=document.createElement('canvas');c.width=c.height=2048;
+    const g=c.getContext('2d');g.drawImage(im,0,0,2048,2048);basePx=g.getImageData(0,0,2048,2048);res(im);};im.onerror=rej;im.src='assets/liveries/b738/base.png';}));
+  const css=a=>'rgb('+Math.round(a[0]*255)+','+Math.round(a[1]*255)+','+Math.round(a[2]*255)+')';
+  function paintTexture(L,n){
+    const dt=new BABYLON.DynamicTexture('real738Liv'+n,{width:2048,height:2048},scene,true);
+    const g=dt.getContext(),id=g.createImageData(2048,2048),src=basePx.data,d=id.data;d.set(src);
+    // fill helper: recolour only used (non-white) texels inside a rect, keeping the base's panel-line shading
+    const fill=(x0,y0,x1,y1,col)=>{const r=col[0]*255,gg=col[1]*255,b=col[2]*255;
+      for(let y=Math.max(0,y0|0);y<Math.min(2048,y1);y++)for(let x=Math.max(0,x0|0);x<Math.min(2048,x1);x++){const k=(y*2048+x)*4;
+        const lum=src[k]+src[k+1]+src[k+2];if(lum>752)continue;const sh=Math.min(1.08,lum/687);d[k]=r*sh;d[k+1]=gg*sh;d[k+2]=b*sh;}};
+    const body=L.b,belly=L.belly||L.b,cheat=L.band||L.a,tail=L.t||L.a,eng=L.nac||L.e||L.b;
+    for(const [y0,y1] of [[0,220],[240,445]]){const h=y1-y0;
+      fill(0,y0,2048,y1,body);
+      if(L.stripes)for(const [a,b,c] of L.stripes)fill(0,y0+h*a,2048,y0+h*b,c);
+      else fill(0,y0+h*.66,2048,y0+h*.71,cheat);
+      fill(0,y0+h*(L.stripes?.72:.71),2048,y1,belly);}
+    fill(0,465,2048,565,body);fill(0,572,2048,680,belly);
+    fill(290,675,1545,1290,eng);
+    fill(0,1580,700,2048,tail);fill(1340,1580,2048,2048,tail);
+    g.putImageData(id,0,0);
+    // airline name near the nose on both sides (strip A: nose right, strip B: nose left)
+    const parts=L.textParts||[[L.nm||L.n,L.tc||[.1,.1,.2]]];
+    const writeAt=(x,y,size)=>{g.font=(L.f||'bold 100px Arial').replace(/\d+px/,size+'px');g.textBaseline='middle';let w=0;for(const [t] of parts)w+=g.measureText(t).width;
+      let cx=x-w/2;for(const [t,c] of parts){g.fillStyle=css(c);g.fillText(t,cx,y);cx+=g.measureText(t).width;}};
+    writeAt(1560,72,96);writeAt(500,290,96);
+    dt.update(false);dt.hasAlpha=false;dt.anisotropicFilteringLevel=8;return dt;
+  }
+  async function liveryTexture(L,n){
+    if(livCache[n])return livCache[n];
+    if(FG_LIV[L.n]){const t=new BABYLON.Texture('assets/liveries/b738/'+FG_LIV[L.n]+'.png',scene,false,false);return livCache[n]=t;}
+    await getBase();return livCache[n]=paintTexture(L,n);
+  }
+  async function paint737(st){
+    const n=curLiv,L=LIVS[n];if(!L)return;st.liv=n;
+    if(!st.livMats){st.livMats=[];const seen=new Set();for(const m of st.meshes){const mt=m.material;if(mt&&!seen.has(mt)&&mt.albedoTexture&&/b738\.glb#image0$/.test(mt.albedoTexture.url||'')){seen.add(mt);st.livMats.push(mt);}}}
+    const tex=await liveryTexture(L,n);if(st.liv!==n)return;
+    for(const mt of st.livMats){mt.albedoTexture=tex;mt.albedoColor=BABYLON.Color3.White();
+      if(/^AMERICAN/.test(L.n)){mt.metallic=.55;mt.roughness=.22;}else{mt.metallic=.06;mt.roughness=.36;}}
+  }
   function paint(st){
+    if(st.id==='737'){paint737(st).catch(e=>console.warn('737 livery',e));return;}
     const L=LIVS[curLiv];if(!L)return;st.liv=curLiv;
     const mk=(n,col)=>{const m=st[n]||(st[n]=new BABYLON.PBRMaterial('realLiv_'+n,scene));m.albedoColor=c3(col);m.metallic=.05;m.roughness=.3;
       m.clearCoat.isEnabled=true;m.clearCoat.intensity=.7;m.clearCoat.roughness=.08;return m;};
     const tail=mk('tailMat',L.t||L.a),eng=mk('engMat',L.nac||L.e||L.b);
     for(const m of st.meshes){
-      if(/^(vstab|vstable|rudder|tail)/i.test(m.name))m.material=tail;
+      if(/^(vstab|vstable|rudder|tail)|vstab/i.test(m.name))m.material=tail;
       else if(/^(engnose|No2engfancase|No2reverser|lreverserib)/.test(m.name))m.material=eng;
     }
     const fm=st.fus&&st.fus.material;
