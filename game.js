@@ -15657,6 +15657,56 @@ void main(){
     for(const k in state){const h=state[k].holder;if(h){const on=camMode!==1;if(h.isEnabled()!==on)h.setEnabled(on);}}
   });
 })();
+
+/* ===== Real 737-800 flight deck (FlightGear cockpit, GPLv2, see assets/models/README.md) =====
+   Loaded in the background the first time the 737 cockpit view is used. While it is shown, the code-built
+   cockpit is hidden and the sim's live PFD / ND / EICAS canvases are mapped onto the model's six screens. */
+(function(){
+  const FILE='assets/models/b738-cockpit.glb';
+  const FG_EYE=new BABYLON.Vector3(-.51,1.28,17.18);   // FlightGear captain viewpoint in sim axes
+  let holder=null,state='idle',hidInterior=false;
+  async function load(){
+    state='loading';
+    try{
+      if(!(BABYLON.SceneLoader.IsPluginForExtensionAvailable&&BABYLON.SceneLoader.IsPluginForExtensionAvailable('.glb'))){
+        const v=BABYLON.Engine.Version||'7.31.0';
+        await new Promise((res,rej)=>{const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/babylonjs-loaders@'+v+'/babylonjs.loaders.min.js';sc.onload=res;sc.onerror=rej;document.head.appendChild(sc);});
+      }
+      const r=await BABYLON.SceneLoader.ImportMeshAsync('','assets/models/','b738-cockpit.glb',scene);
+      holder=new BABYLON.TransformNode('realCockpit738',scene);
+      r.meshes[0].parent=holder;holder.parent=aircraftRoot;
+      const eye=window._ckEye||[-.6,.30,14.0];
+      holder.position.set(eye[0]-FG_EYE.x,eye[1]-FG_EYE.y,eye[2]-FG_EYE.z);
+      // screens: lowest one is the lower DU (pedestal); the other five left->right are PFD, ND, upper EICAS, ND, PFD
+      holder.computeWorldMatrix(true);r.meshes.forEach(m=>m.computeWorldMatrix(true));
+      const scr=r.meshes.filter(m=>/^SCREEN_/.test(m.name));
+      const local=m=>BABYLON.Vector3.TransformCoordinates(m.getBoundingInfo().boundingBox.centerWorld,holder.getWorldMatrix().clone().invert());
+      scr.sort((a,b)=>local(a).y-local(b).y);
+      const lower=scr.length>5?scr.shift():null;
+      scr.sort((a,b)=>local(a).x-local(b).x);
+      const keys=['pfdL','ndL','eicas','ndR','pfdR'];
+      const screenMat=(tex,n)=>{const m=new BABYLON.StandardMaterial('realScr_'+n,scene);m.diffuseColor=BABYLON.Color3.Black();m.specularColor=BABYLON.Color3.Black();
+        m.emissiveTexture=tex;m.disableLighting=true;m.backFaceCulling=false;return m;};
+      // the FlightGear screen quads map their texture upside down relative to our canvases: flip v
+      for(const m of scr.concat(lower?[lower]:[])){const uv=m.getVerticesData(BABYLON.VertexBuffer.UVKind);if(uv){for(let i=1;i<uv.length;i+=2)uv[i]=1-uv[i];m.setVerticesData(BABYLON.VertexBuffer.UVKind,uv);}}
+      scr.forEach((m,i)=>{const k=keys[i];if(k&&displays[k])m.material=screenMat(displays[k],k);});
+      if(lower&&displays.eicas)lower.material=screenMat(displays.eicas,'lower');
+      for(const m of r.meshes){m.isPickable=false;const mt=m.material;
+        if(mt instanceof BABYLON.PBRMaterial){mt.roughness=.62;mt.environmentIntensity=.75;mt.directIntensity=1.1;}}
+      holder.setEnabled(false);state='ready';
+      console.info('real 737 cockpit loaded: screens',scr.length+(lower?1:0));
+    }catch(e){console.warn('real cockpit failed, keeping code-built cockpit',e);state='failed';}
+  }
+  window._realCockpit=()=>({state,holder});
+  scene.onBeforeRenderObservable.add(()=>{
+    const want=camMode===1&&(window._activeModelId||'737')==='737';
+    if(want&&state==='idle')load();
+    const show=want&&state==='ready';
+    if(holder&&holder.isEnabled()!==show)holder.setEnabled(show);
+    if(show){if(interiorRoot.isEnabled())interiorRoot.setEnabled(false);hidInterior=true;}
+    else if(hidInterior){hidInterior=false;if(camMode===1)interiorRoot.setEnabled(true);}
+  });
+})();
 } /* end main */
 
 (function(){const prevTD=window._onTouchdown;window._onTouchdown=(sink,hs,noGear,water)=>{try{prevTD&&prevTD(sink,hs,noGear,water);}catch(e){}try{if(!noGear&&!water)window._ambThump&&window._ambThump(Math.min(1,sink/8));}catch(e){}};})();
