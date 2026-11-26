@@ -1046,6 +1046,30 @@ body.cockpit #flightSidebar{opacity:.94}
 body:not(.mobile) #homeStars{display:none!important}
 /* Make homeCard sit above starfield */
 .homeCard { position: relative; z-index: 1; }
+/* ---- Home modes ---- */
+#homeModes{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:12px 16px 4px}
+.homeMode{display:flex;align-items:center;gap:12px;text-align:left;padding:14px 16px;border-radius:14px;cursor:pointer;
+  background:linear-gradient(180deg,#0f1d33,#0a1424);border:1px solid #1e3352;color:#cfe3f7;font:inherit;transition:transform .15s,border-color .15s,box-shadow .15s}
+.homeMode:hover{border-color:#2f5c8c;transform:translateY(-1px)}
+.homeMode.on{border-color:#22d3ee;box-shadow:0 0 0 1px #22d3ee inset,0 8px 24px rgba(34,211,238,.18);background:linear-gradient(180deg,#0f2a40,#0b1a2c)}
+.homeMode .hmIcon{font-size:24px;width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:#0b2238;flex:none}
+.homeMode.on .hmIcon{background:#083344}
+.homeMode .hmText{display:flex;flex-direction:column;gap:2px;min-width:0}
+.homeMode b{font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:#f1f7ff}
+.homeMode small{font-size:11px;color:#8aa6c4;line-height:1.3}
+#homeCareerBar{display:none;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 16px 0;padding:8px 12px;border-radius:10px;background:#1b1530;border:1px solid #4c3a7a;color:#e9ddff;font-size:12px}
+#homeCareerBar span{flex:1;min-width:180px}
+#homeCareerBar button{background:#3b2a66;color:#f3ecff;border:1px solid #6b52a8;border-radius:8px;padding:6px 10px;font:inherit;font-weight:700;cursor:pointer}
+#overlay.mode-career #homeCareerBar{display:flex}
+#overlay.mode-mp #homeMultiplayer,#overlay.mode-mp #homeMultiplayer+*{box-shadow:0 0 0 1px #22d3ee;border-radius:10px}
+#overlay.mode-mp #homeMultiplayer{padding:6px 8px;color:#67e8f9}
+@media (max-width:760px){
+  #homeModes{gap:6px;padding:10px 10px 2px}
+  .homeMode{flex-direction:column;align-items:center;text-align:center;padding:10px 6px;gap:6px}
+  .homeMode small{display:none}
+  .homeMode b{font-size:11px}
+  .homeMode .hmIcon{width:34px;height:34px;font-size:20px}
+}
 
 /* Master card */
 .homeCard {
@@ -1896,6 +1920,26 @@ body.pfd-hidden #compass {
       </div>
     </div>
 
+    <div id="homeModes" role="tablist" aria-label="Choose how to fly">
+      <button class="homeMode" type="button" role="tab" data-mode="free">
+        <span class="hmIcon" aria-hidden="true">✈</span>
+        <span class="hmText"><b>Free Flight</b><small>Pick an airport and a plane, then just fly</small></span>
+      </button>
+      <button class="homeMode" type="button" role="tab" data-mode="career">
+        <span class="hmIcon" aria-hidden="true">🏆</span>
+        <span class="hmText"><b>Career</b><small>Missions, lessons, money and the hangar</small></span>
+      </button>
+      <button class="homeMode" type="button" role="tab" data-mode="mp">
+        <span class="hmIcon" aria-hidden="true">🌐</span>
+        <span class="hmText"><b>Multiplayer</b><small>Fly with other pilots and live ATC</small></span>
+      </button>
+    </div>
+    <div id="homeCareerBar">
+      <span>Career mode: choose a mission or upgrade your fleet.</span>
+      <button type="button" data-home-panel="missions">📋 Missions &amp; lessons</button>
+      <button type="button" data-home-panel="hangar">🛒 Hangar / store</button>
+    </div>
+
     <div class="homeBody">
         <nav id="homeMenu" aria-label="Home menu">
           <div class="homeMenuLabel">Navigation</div>
@@ -2520,6 +2564,28 @@ body.pfd-hidden #compass {
   </div>
 </div>
 <script>
+  /* Three home modes: Free Flight / Career / Multiplayer (remembered on this device) */
+  (function(){
+    const ov=document.getElementById('overlay'),start=document.getElementById('startBtn');
+    const jump=id=>{const b=document.querySelector('[data-home-jump="'+id+'"]');if(b)b.click();};
+    const setMode=(m,user)=>{
+      if(!['free','career','mp'].includes(m))m='free';
+      ov.classList.remove('mode-free','mode-career','mode-mp');ov.classList.add('mode-'+m);
+      document.querySelectorAll('.homeMode').forEach(b=>{const on=b.dataset.mode===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',on);});
+      if(start)start.textContent=m==='mp'?'Fly Online':'Start Flight';
+      try{localStorage.setItem('sky_homeMode',m);}catch(e){}
+      if(!user)return;
+      if(m==='free')jump('homeSetup');
+      if(m==='mp'){jump('homeMultiplayer');const cs=document.querySelector('#homeOptions input[type=text]');setTimeout(()=>{try{cs&&cs.focus({preventScroll:true});}catch(e){}},400);}
+      if(m==='career'){const b=document.querySelector('#homeMenu [data-home-panel="missions"]');if(b)b.click();}
+    };
+    document.querySelectorAll('.homeMode').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode,true)));
+    // career bar buttons reuse the existing Missions / Hangar panels
+    document.querySelectorAll('#homeCareerBar [data-home-panel]').forEach(b=>b.addEventListener('click',()=>{
+      const t=document.querySelector('#homeMenu [data-home-panel="'+b.dataset.homePanel+'"]');if(t)t.click();}));
+    let m='free';try{m=localStorage.getItem('sky_homeMode')||'free';}catch(e){}
+    setMode(m,false);
+  })();
   document.querySelectorAll('[data-home-jump]').forEach(button=>{
     button.addEventListener('click',()=>{
       const scroller=document.querySelector('.homeBody');
