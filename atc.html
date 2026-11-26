@@ -537,7 +537,7 @@
           <div class="stripTitle">${esc(p.callsign)} · ${esc((p.modelId || '737').toUpperCase())}</div>
           <div class="stripMeta">${esc(p.airport || '---')} (${esc(p.centerId || 'GLOBAL')}) · ${altFt.toLocaleString()}ft ${vsArrow} · ${kt}kt · ${hdg}°</div>
         </div>
-        <span class="stripBadge">${p.flying ? 'AIR/GND' : 'MENU'}</span>
+        <span class="stripBadge"${p.crashed ? ' style="background:#7f1d1d;color:#fecaca"' : ''}>${p.crashed ? 'CRASHED' : !p.flying ? 'MENU' : !onRadar(p) ? 'NO SIGNAL' : (p.spd || 0) > 40 ? 'AIRBORNE' : 'GROUND'}</span>
       `;
       el.addEventListener('click', () => {
         selectedPilotId = selectedPilotId === p.id ? null : p.id;
@@ -580,11 +580,39 @@
     updateTargetLabel();
   }
 
+  /* A pilot is a live radar return only while airborne/taxiing in the sim, not crashed,
+     and still sending telemetry. Anything else drops off the scope. */
+  const RADAR_STALE_MS = 15000;
+  function onRadar(p) {
+    return !!p && !!p.flying && !p.crashed && (Date.now() - (p._rxAt || 0)) < RADAR_STALE_MS;
+  }
   function handlePilotUpsert(p) {
     if (!p || !p.id) return;
+    const prev = pilots.get(p.id);
+    p._rxAt = Date.now();
+    if (prev && !prev.crashed && p.crashed) {
+      addLog(`<span class="logSys" style="color:#f87171">✖ RADAR CONTACT LOST · ${esc(p.callsign)} (crashed)</span>`);
+      if (selectedPilotId === p.id) { selectedPilotId = null; try { updateTargetLabel(); } catch (_) {} }
+    } else if (prev && prev.crashed && !p.crashed) {
+      addLog(`<span class="logSys">↺ ${esc(p.callsign)} back on radar</span>`);
+    } else if (prev && prev.flying && !p.flying) {
+      addLog(`<span class="logSys">↙ ${esc(p.callsign)} left the sky (menu)</span>`);
+    }
     pilots.set(p.id, p);
     renderStrips();
   }
+  // Sweep silent targets so frozen/closed sims fade off the scope even without a leave message
+  setInterval(() => {
+    let changed = false;
+    for (const [id, p] of pilots) {
+      if (Date.now() - (p._rxAt || 0) > 45000) {
+        pilots.delete(id); changed = true;
+        addLog(`<span class="logSys">↙ ${esc(p.callsign)} radar contact lost (no signal)</span>`);
+        if (selectedPilotId === id) selectedPilotId = null;
+      }
+    }
+    if (changed) { try { updateTargetLabel(); } catch (_) {} renderStrips(); }
+  }, 5000);
 
   function handleIncomingAudio(msg) {
     if (!msg || !msg.audioB64) return;
@@ -678,7 +706,7 @@
         connDot.className = 'dot on';
         connTxt.textContent = 'LIVE · ' + (msg.centerId || 'GLOBAL');
         pilots.clear();
-        (msg.players || []).forEach(p => pilots.set(p.id, p));
+        (msg.players || []).forEach(p => { p._rxAt = Date.now(); pilots.set(p.id, p); });
         renderStrips();
         addLog(`<span class="logSys">Station active: <b>${esc(msg.callsign)}</b> on <b>${esc(msg.centerId)} (${esc(msg.freq)})</b>.</span>`);
       } else if (msg.type === 'player:joined' && msg.player) {
@@ -686,6 +714,9 @@
         addLog(`<span class="logSys">↗ ${esc(msg.player.callsign)} entered airspace (${esc(msg.player.airport || '---')})</span>`);
       } else if (msg.type === 'player:state' && msg.player) {
         handlePilotUpsert(msg.player);
+      } else if (msg.type === 'player:crashed' && msg.id) {
+        const old = pilots.get(msg.id);
+        if (old && !old.crashed) handlePilotUpsert(Object.assign({}, old, { crashed: true }));
       } else if (msg.type === 'player:left' && msg.id) {
         const old = pilots.get(msg.id);
         pilots.delete(msg.id);
@@ -1159,6 +1190,7 @@
     // Aircraft targets
     hitTargets.length = 0;
     for (const p of pilots.values()) {
+      if (!onRadar(p)) continue;
       if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
       const pt = project(p.lat, p.lon, W, H);
       if (pt.x < -30 || pt.x > W + 30 || pt.y < -30 || pt.y > H + 30) continue;
@@ -1197,7 +1229,7 @@
       const vsSym = vsFpm > 180 ? '↑' : vsFpm < -180 ? '↓' : '';
       rctx.font = 'bold 11px monospace';
       rctx.fillStyle = col;
-      rctx.fillText(p.callsign + (p.flying ? '' : ' [MENU]'), pt.x + 10, pt.y - 4);
+      rctx.fillText(p.callsign, pt.x + 10, pt.y - 4);
       rctx.font = '10px monospace';
       rctx.fillStyle = isSel ? '#fde68a' : (inSec ? '#a7f3d0' : '#94a3b8');
       rctx.fillText(`${fl}${vsSym} ${kt}KT ${(p.modelId || '737').toUpperCase()}`, pt.x + 10, pt.y + 9);

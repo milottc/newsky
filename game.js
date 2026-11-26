@@ -985,11 +985,11 @@ M.intake.albedoColor=new BABYLON.Color3(.46,.47,.50);
 M.intake.metallic=.92;M.intake.roughness=.12;
 _forceOpaquePBR(M.intake);
 M.cockpitBody=new BABYLON.PBRMaterial('cockpitBodyM',scene);
-M.cockpitBody.albedoColor=new BABYLON.Color3(.32,.34,.38);M.cockpitBody.emissiveColor=new BABYLON.Color3(.018,.020,.024);
+M.cockpitBody.albedoColor=new BABYLON.Color3(.38,.41,.45);M.cockpitBody.emissiveColor=new BABYLON.Color3(.018,.020,.024);
 M.cockpitBody.metallic=.08;M.cockpitBody.roughness=.78;
 _forceOpaquePBR(M.cockpitBody);
 M.cockpitPanel=new BABYLON.PBRMaterial('cockpitPanelM',scene);
-M.cockpitPanel.albedoColor=new BABYLON.Color3(.255,.30,.35);
+M.cockpitPanel.albedoColor=new BABYLON.Color3(.30,.345,.39);
 M.cockpitPanel.metallic=.22;M.cockpitPanel.roughness=.48;
 M.cockpitPanel.clearCoat.isEnabled=true;M.cockpitPanel.clearCoat.intensity=.28;M.cockpitPanel.clearCoat.roughness=.32;
 _forceOpaquePBR(M.cockpitPanel);
@@ -1053,8 +1053,46 @@ function vert(name,st,mat,par){
   m.material=mat;m.isPickable=false;m.parent=par||exteriorRoot;
   m.hasVertexAlpha=false;m.useVertexColors=false;m.visibility=1;return m;
 }
+/* Smoothly resample body stations along z with a monotone cubic (no overshoot), so
+   fuselages read as one continuous curved skin instead of straight-sided segments. */
+function _smoothStations(st){
+  const D={w:1,h:1,yo:0,flat:0};
+  const S=st.map(s=>({...D,...s})).filter(s=>isFinite(s.z)&&isFinite(s.r));
+  if(S.length<3)return S;
+  const keys=['r','w','h','yo','flat'],n=S.length;
+  const slopes={};
+  for(const k of keys){
+    const d=[],m=new Array(n).fill(0);
+    for(let i=0;i<n-1;i++){const dz=S[i+1].z-S[i].z;d.push(dz?(S[i+1][k]-S[i][k])/dz:0);}
+    m[0]=d[0];m[n-1]=d[n-2];
+    for(let i=1;i<n-1;i++){
+      if(d[i-1]*d[i]<=0){m[i]=0;continue;}
+      const h0=S[i].z-S[i-1].z,h1=S[i+1].z-S[i].z,w1=2*h1+h0,w2=h1+2*h0;
+      m[i]=(w1+w2)/(w1/d[i-1]+w2/d[i]);
+    }
+    slopes[k]=m;
+  }
+  const out=[S[0]];
+  for(let i=0;i<n-1;i++){
+    const a=S[i],b=S[i+1],hz=b.z-a.z,steps=Math.max(1,Math.min(8,Math.ceil(Math.abs(hz)/.45)));
+    for(let j=1;j<=steps;j++){
+      const t=j/steps,t2=t*t,t3=t2*t;
+      const h00=2*t3-3*t2+1,h10=t3-2*t2+t,h01=-2*t3+3*t2,h11=t3-t2;
+      const p={z:a.z+hz*t};
+      for(const k of keys)p[k]=h00*a[k]+h10*hz*slopes[k][i]+h01*b[k]+h11*hz*slopes[k][i+1];
+      p.r=Math.max(0,p.r);p.flat=Math.max(0,Math.min(.9,p.flat));
+      out.push(p);
+    }
+  }
+  /* close pointed noses / tail cones so the tip has no hole (open intakes stay open) */
+  const maxR=Math.max(...out.map(s=>s.r));
+  const capEnd=(e,nb,push)=>{if(e.r>0&&e.r<maxR*.12){const dz=e.z-nb.z;const c={...e,r:0,z:e.z+Math.sign(dz||1)*Math.min(.06,e.r*.35)};push(c);}};
+  capEnd(out[0],out[1],c=>out.unshift(c));
+  capEnd(out[out.length-1],out[out.length-2],c=>out.push(c));
+  return out;
+}
 function tubeSmooth(name,st,mat,par){
-  const P=48,secs=st.map(s=>{
+  const P=64,secs=_smoothStations(st).map(s=>{
     const r=[];for(let i=0;i<P;i++){const a=(i/P)*Math.PI*2;
       let yy=Math.sin(a)*s.r*s.h;const cosv=Math.cos(a);let xx=cosv*s.r*s.w;
       if(yy<0)yy*=1-s.flat*Math.abs(cosv);
@@ -1065,7 +1103,7 @@ function tubeSmooth(name,st,mat,par){
   m.hasVertexAlpha=false;m.useVertexColors=false;m.visibility=1;return m;
 }
 
-const fuselage=tubeSmooth('fuselage',[
+const FUS737_STATIONS=[
   {z:18.0,r:.15,w:1,h:1.0,yo:.02,flat:.2},{z:17.0,r:.75,w:1,h:1.05,yo:-.02,flat:.15},
   {z:16.0,r:1.15,w:1,h:1.08,yo:-.05,flat:.15},{z:14.5,r:1.60,w:1,h:1.10,yo:-.10,flat:.15},
   {z:12.0,r:1.85,w:1,h:1.10,yo:-.10,flat:.15},{z:9.0,r:1.95,w:1,h:1.08,yo:-.05,flat:.12},
@@ -1074,16 +1112,15 @@ const fuselage=tubeSmooth('fuselage',[
   {z:-13.0,r:1.45,w:1,h:1.12,yo:.10,flat:.15},{z:-15.0,r:1.05,w:1,h:1.20,yo:.20,flat:.15},
   {z:-16.5,r:.65,w:1,h:1.35,yo:.35,flat:.1},{z:-17.5,r:.30,w:1,h:1.55,yo:.45,flat:.1},
   {z:-18.2,r:.08,w:1,h:1.7,yo:.5,flat:.1}
-],M.body);
+];
+const fuselage=tubeSmooth('fuselage',FUS737_STATIONS,M.body);
 
 // Sculpted 6-pane wraparound Boeing 737 cockpit windshield + hollow frames + authentic interior flight deck bay
 const cpGlass=new BABYLON.TransformNode('cpGlassGrp',scene);
 cpGlass.parent=exteriorRoot;
 {
-  const fus737St=[
-    {z:18.0,r:.15,w:1,h:1.0,yo:.02},{z:17.0,r:.75,w:1,h:1.05,yo:-.02},
-    {z:16.0,r:1.15,w:1,h:1.08,yo:-.05},{z:14.5,r:1.60,w:1,h:1.10,yo:-.10}
-  ];
+  /* follow the same smoothed skin the fuselage mesh is built from, so panes sit flush */
+  const fus737St=_smoothStations(FUS737_STATIONS).filter(p=>p.z>=14.5);
   const sampleFus=(z)=>{
     for(let i=0;i<fus737St.length-1;i++){
       const a=fus737St[i],b=fus737St[i+1];
@@ -1785,14 +1822,62 @@ glassPane('gsr',1.40,.72,1.96,.54,13.16,0,4*Math.PI/7,M.sideGlass);
 /* Window frame depth strips – hug the exact front windshield edges (never blocking view) */
 (function(){
   const fm=M.bezel;
-  intBox('wsFrameTop',1.94,.06,.06,0,.99,15.58,0,fm);
-  intBox('wsFrameBot',1.94,.06,.06,0,.13,15.58,0,fm);
-  intBox('wsFrameMid',.07,.88,.06,0,.56,15.58,0,fm);
-  intBox('wsFrameL',.07,.88,.06,-.94,.56,15.58,0,fm);
-  intBox('wsFrameR',.07,.88,.06,.94,.56,15.58,0,fm);
+  intBox('wsFrameMid',.09,.9,.07,0,.56,15.58,0,fm);
   intBox('wsVisorL',.04,.025,.34,-1.05,.99,15.48,-.28,fm);
   intBox('wsVisorR',.04,.025,.34,1.05,.99,15.48,-.28,fm);
   intBox('wsVisorC',1.92,.025,.34,0,.99,15.48,-.28,fm);
+})();
+
+/* Cockpit windows: rounded, padded window frames, tinted laminated-glass edges and wipers */
+(function(){
+  // Glass gets a soft darker, faintly green edge (laminate + heating film) and stays crystal clear in the middle
+  const gt=new BABYLON.DynamicTexture('wsEdgeTex',{width:256,height:256},scene,true);
+  const g=gt.getContext();g.clearRect(0,0,256,256);
+  const id=g.createImageData(256,256);
+  for(let y=0;y<256;y++)for(let x=0;x<256;x++){
+    const u=Math.abs(x/127.5-1),v=Math.abs(y/127.5-1),e=Math.pow(Math.max(u,v),7),k=(y*256+x)*4;
+    id.data[k]=18;id.data[k+1]=48+e*30;id.data[k+2]=46;id.data[k+3]=Math.round((.05+e*.32)*255);}
+  g.putImageData(id,0,0);gt.update(false);gt.hasAlpha=true;
+  for(const mat of [M.windshieldGlass,M.sideGlass]){
+    mat.albedoTexture=gt;mat.useAlphaFromAlbedoTexture=true;mat.alpha=1;mat.albedoColor=new BABYLON.Color3(1,1,1);}
+  // Rounded-rectangle frame tube in a pane's local plane
+  const frameMat=M.cockpitPanel;
+  const rr=(w,h,r)=>{const p=[],hw=w/2,hh=h/2,c=[[hw-r,hh-r,0],[-hw+r,hh-r,Math.PI/2],[-hw+r,-hh+r,Math.PI],[hw-r,-hh+r,1.5*Math.PI]];
+    for(const [cx,cy,a0] of c)for(let i=0;i<=6;i++){const a=a0+i/6*Math.PI/2;p.push(new BABYLON.Vector3(cx+Math.cos(a)*r,cy+Math.sin(a)*r,0));}
+    p.push(p[0].clone());return p;};
+  const frame=(name,w,h,x,y,z,ry,rad,thick)=>{
+    const node=new BABYLON.TransformNode(name+'N',scene);node.parent=interiorRoot;node.position.set(x,y,z);node.rotation.y=ry||0;
+    const t=BABYLON.MeshBuilder.CreateTube(name,{path:rr(w+.05,h+.05,rad),radius:thick,tessellation:10,cap:BABYLON.Mesh.NO_CAP},scene);
+    t.material=frameMat;t.parent=node;t.position.z=-.025;t.isPickable=false;
+    // flat padded lining behind the tube so the frame reads deep from the seat
+    const t2=BABYLON.MeshBuilder.CreateTube(name+'In',{path:rr(w+.11,h+.11,rad+.03),radius:thick*.8,tessellation:8,cap:BABYLON.Mesh.NO_CAP},scene);
+    t2.material=M.bezel;t2.parent=node;t2.position.z=-.06;t2.isPickable=false;
+    return node;};
+  frame('wsRF1',.84,.86,-.49,.56,15.61,0,.1,.032);
+  frame('wsRF2',.84,.86,.49,.56,15.61,0,.1,.032);
+  frame('wsRF3',1.68,.80,-1.57,.56,14.85,-2*Math.PI/7,.12,.034);
+  frame('wsRF4',1.68,.80,1.57,.56,14.85,2*Math.PI/7,.12,.034);
+  frame('wsRF5',1.40,.72,-1.96,.54,13.16,-4*Math.PI/7,.14,.034);
+  frame('wsRF6',1.40,.72,1.96,.54,13.16,4*Math.PI/7,.14,.034);
+  // Windshield wipers parked along the lower outboard edge of each No.1 window; they sweep in rain/snow
+  const wm=new BABYLON.PBRMaterial('wiperM',scene);wm.albedoColor=new BABYLON.Color3(.05,.055,.06);wm.metallic=.3;wm.roughness=.5;
+  const wipers=[];
+  for(const sg of [-1,1]){
+    const piv=new BABYLON.TransformNode('wiperPiv'+sg,scene);piv.parent=interiorRoot;piv.position.set(sg*.86,.17,15.66);
+    const arm=BABYLON.MeshBuilder.CreateBox('wiperArm'+sg,{width:.66,height:.018,depth:.018},scene);arm.material=wm;arm.parent=piv;arm.position.x=-sg*.33;arm.isPickable=false;
+    const blade=BABYLON.MeshBuilder.CreateBox('wiperBlade'+sg,{width:.62,height:.012,depth:.03},scene);blade.material=wm;blade.parent=piv;blade.position.set(-sg*.36,.02,-.03);blade.isPickable=false;
+    const hub=BABYLON.MeshBuilder.CreateCylinder('wiperHub'+sg,{diameter:.05,height:.04,tessellation:12},scene);hub.rotation.x=Math.PI/2;hub.material=wm;hub.parent=piv;hub.isPickable=false;
+    wipers.push({piv,sg});
+  }
+  let wph=0,wAng=0;
+  scene.registerBeforeRender(()=>{
+    const w=(typeof currentWeather!=='undefined'&&currentWeather)||{};
+    const wet=(w.rain||0)+(w.snow||0)>0&&!(typeof plane!=='undefined'&&plane.crashed);
+    const dt=Math.min(.05,(engine.getDeltaTime()||16)/1000);
+    if(wet){wph+=dt*((w.rain||0)>1?3.6:2.4);wAng=(.5-.5*Math.cos(wph))*1.55;}
+    else{wph=0;wAng=Math.max(0,wAng-dt*2.2);} // return to park when the rain stops
+    for(const {piv,sg} of wipers)piv.rotation.z=-sg*wAng;
+  });
 })();
 
 const panelW=1.55,panelH=.45;
@@ -5811,7 +5896,8 @@ fuselage.material=M.fus;fin.material=M.tail;
 const FUS_W=512*LIVERY_OPTIONS.textureScale,FUS_H=2048*LIVERY_OPTIONS.textureScale;
 const fusTex=new BABYLON.DynamicTexture('fusTex',{width:FUS_W,height:FUS_H},scene,true);
 fusTex.hasAlpha=false;
-fusTex.anisotropicFilteringLevel=8;
+fusTex.anisotropicFilteringLevel=16;
+M.fus.clearCoat.intensity=.95;M.fus.clearCoat.roughness=.04;M.fus.environmentIntensity=1.1;
 const embs=[]; // No decorative discs obscuring the airline tail.
 const nameTex=new BABYLON.DynamicTexture('nameTex',{width:3072,height:384},scene,true);
 nameTex.anisotropicFilteringLevel=8;nameTex.hasAlpha=true;
@@ -5840,10 +5926,10 @@ let curLiv=0;
 const rgba=(a,al)=>'rgba('+a.map(v=>Math.round(v*255)).join(',')+','+al+')';
 const finTex=new BABYLON.DynamicTexture('finTex',{width:1024,height:1024},scene,true);
 finTex.hasAlpha=false;
-finTex.anisotropicFilteringLevel=8;
+finTex.anisotropicFilteringLevel=16;
 const wingletTex=new BABYLON.DynamicTexture('wingletTex',{width:512,height:512},scene,true);
 wingletTex.hasAlpha=false;
-wingletTex.anisotropicFilteringLevel=8;
+wingletTex.anisotropicFilteringLevel=16;
 const WORDMARK_TAILS=new Set(['SAS','SPIRIT','EASYJET']);
 const REG_PREFIX={LUFTHANSA:'D-AIN',EMIRATES:'A6-EO',QANTAS:'VH-VY','AIR CANADA':'C-FSD',DELTA:'N374D',RYANAIR:'EI-DW',WESTJET:'C-GWS',SOUTHWEST:'N862W','BRITISH AIRWAYS':'G-EUP',SWISS:'HB-JL','CATHAY PACIFIC':'B-KPA','KLM ROYAL DUTCH AIRLINES':'PH-BX','AIR FRANCE':'F-GKX',AMERICAN:'N912A',UNITED:'N275U','SINGAPORE AIRLINES':'9V-SM',ANA:'JA81A','JAPAN AIRLINES':'JA34J','KOREAN AIR':'HL80',ETIHAD:'A6-BL','QATAR AIRWAYS':'A7-BC','TURKISH AIRLINES':'TC-JH',IBERIA:'EC-MX',SAS:'SE-DO',FINNAIR:'OH-LX',NORWEGIAN:'LN-NG',EASYJET:'G-EZW','AIR NEW ZEALAND':'ZK-NZ',LATAM:'CC-BA',ALASKA:'N539A',JETBLUE:'N708J',THAI:'HS-TK',MALAYSIA:'9M-MX','CHINA EASTERN':'B-172','AIR CHINA':'B-568',AEROFLOT:'RA-73',LOT:'SP-LV','AER LINGUS':'EI-DE',HAWAIIAN:'N218H',TUI:'G-TUI',SPIRIT:'N648N','VIETNAM AIRLINES':'VN-A8'};
 function paintFuselageSurface(g,W,H,L,idx,withWindows){
@@ -6392,42 +6478,116 @@ let cityOn=true;
 const traffic=[];let trafficSpawnT=2,tcasMsgT=0,tcasLevel=0,tcasDrawT=0;
 let TCAS_V={lvl:0,dir:0,t0:0,tier:0};
 const tcasCtx=document.getElementById('tcasCanvas').getContext('2d');
-function makeAirliner(col){
+/* Simplified real-world liveries for AI traffic: body (upper), belly, tail, cheatline stripe,
+   engine cowl, and an optional tail emblem disc. Colors are 0..1 RGB. */
+const AI_LIVERIES={
+  CPA:{tail:[.0,.36,.32],stripe:[.0,.36,.32],eng:[.0,.36,.32],mark:[1,1,1]},
+  CRK:{tail:[.75,.05,.1],mark:[.95,.8,.3]},HKE:{tail:[.45,.1,.5],eng:[.45,.1,.5]},
+  SIA:{tail:[.05,.12,.3],stripe:[.85,.65,.2],mark:[.95,.7,.2]},TGW:{tail:[.98,.82,.1],eng:[.98,.82,.1]},
+  ANA:{tail:[.0,.25,.55],stripe:[.0,.5,.85],eng:[.0,.25,.55]},JAL:{tail:[1,1,1],mark:[.8,.05,.1],markR:.34},
+  APJ:{tail:[.85,.2,.5],eng:[.85,.2,.5]},SKY:{tail:[.05,.2,.55],stripe:[.98,.8,.1]},
+  KAL:{body:[.68,.82,.94],tail:[1,1,1],mark:[.15,.25,.65],markR:.3},AAR:{tail:[.55,.45,.45],mark:[.85,.65,.3]},
+  CCA:{tail:[1,1,1],mark:[.8,.05,.1],stripe:[.8,.05,.1]},CES:{tail:[.05,.15,.45],mark:[.8,.05,.1],stripe:[.05,.15,.45]},
+  CSN:{tail:[.35,.6,.85],mark:[.8,.05,.1],markR:.3},CHH:{tail:[.8,.05,.1],mark:[.95,.75,.2]},
+  EVA:{tail:[.1,.35,.3],stripe:[.9,.55,.1],eng:[.1,.35,.3]},CAL:{tail:[.55,.65,.85],mark:[.85,.4,.6]},
+  THA:{tail:[.4,.15,.5],mark:[.85,.65,.2],eng:[.4,.15,.5]},
+  QFA:{tail:[.85,.05,.1],mark:[1,1,1],markR:.22},VOZ:{tail:[.55,.05,.15],belly:[.55,.05,.15]},JST:{tail:[.98,.5,.05],mark:[1,1,1],markR:.18},
+  IGO:{tail:[.1,.15,.5],belly:[.1,.15,.5]},AIC:{tail:[.8,.05,.1],mark:[.9,.7,.2],eng:[.55,.1,.35]},
+  BAW:{tail:[.04,.1,.35],belly:[.04,.1,.35],stripe:[.75,.05,.1],mark:[.75,.05,.1],markR:.2},
+  EZY:{tail:[.95,.45,.05],eng:[.95,.45,.05]},VIR:{tail:[.75,.05,.1],eng:[.75,.05,.1]},
+  RYR:{tail:[.08,.2,.46],belly:[.08,.2,.46],mark:[.95,.8,.1]},
+  AFR:{tail:[1,1,1],stripe:[.02,.08,.32],mark:[.8,.05,.1],markR:.22},EJU:{tail:[.95,.45,.05],eng:[.95,.45,.05]},
+  DLH:{tail:[.04,.07,.3],eng:[.04,.07,.3],mark:[1,1,1],markR:.3},EWG:{tail:[.65,.1,.3],mark:[.95,.95,.95],markR:.2},
+  SWR:{tail:[.8,.04,.08],mark:[1,1,1],markR:.2},THY:{tail:[.8,.05,.1],mark:[1,1,1],markR:.28},
+  KLM:{body:[.2,.6,.85],tail:[.2,.6,.85],stripe:[1,1,1]},IBE:{tail:[.8,.05,.1],mark:[.95,.75,.1]},
+  UAE:{tail:[.78,.05,.08],stripe:[.1,.45,.2],mark:[.1,.1,.1],markR:.16},FDB:{tail:[.1,.3,.6],belly:[.1,.3,.6],eng:[.95,.45,.05]},
+  ETD:{tail:[.75,.6,.3],mark:[.55,.4,.2]},QTR:{tail:[.45,.05,.15],stripe:[.45,.05,.15]},
+  DAL:{tail:[.0,.1,.35],belly:[.0,.1,.35],mark:[.8,.05,.1],markR:.26},UAL:{tail:[.0,.2,.5],belly:[.0,.2,.5],eng:[.0,.2,.5],mark:[1,1,1],markR:.26},
+  AAL:{body:[.82,.84,.86],tail:[.7,.1,.15],stripe:[.1,.3,.65],mark:[.1,.3,.65],markR:.2},JBU:{tail:[.05,.25,.65],eng:[.05,.25,.65]},
+  SWA:{body:[.08,.18,.48],tail:[.08,.18,.48],belly:[.85,.1,.1],mark:[.95,.75,.1]},
+  ACA:{tail:[.1,.1,.12],mark:[.8,.05,.1],markR:.3},WJA:{tail:[.1,.4,.5],eng:[.1,.4,.5]},
+  TAM:{tail:[.1,.15,.45],mark:[.85,.1,.3]},AMX:{tail:[.05,.1,.3],mark:[.85,.3,.3],markR:.2},LAN:{tail:[.1,.15,.45],mark:[.85,.1,.3]},GLO:{tail:[.98,.45,.05],eng:[.98,.45,.05]},
+  AZU:{tail:[.1,.3,.7],belly:[.1,.3,.7]}
+};
+const _aiTailTexCache=new Map();
+function _aiTailTex(code,lv){
+  const key=code||'X';if(_aiTailTexCache.has(key))return _aiTailTexCache.get(key);
+  const S=256,t=new BABYLON.DynamicTexture('aiTail_'+key,{width:S,height:S},scene,true);
+  const g=t.getContext(),c=a=>'rgb('+(a[0]*255|0)+','+(a[1]*255|0)+','+(a[2]*255|0)+')';
+  g.fillStyle=c(lv.tail);g.fillRect(0,0,S,S);
+  if(lv.mark){g.fillStyle=c(lv.mark);const R=S*(lv.markR||.24);
+    for(const u of [.27,.73]){g.beginPath();g.ellipse(S*u,S*.5,R*.5,R,0,0,Math.PI*2);g.fill();}}
+  if(lv.stripe){g.fillStyle=c(lv.stripe);g.fillRect(0,S*.9,S,S*.1);}
+  t.update(true);t.hasAlpha=false;t.anisotropicFilteringLevel=8;_aiTailTexCache.set(key,t);return t;
+}
+/* A painted strip of skin that hugs a tubeSmooth body: angle a0..a1 (0 = right side, PI/2 = top),
+   between z0 and z1, lifted off by `off`. Used for bellies, cheatlines and window bands. */
+function _skinPatch(name,st,a0,a1,z0,z1,off,mat,par){
+  const S=_smoothStations(st).filter(p=>p.z>=z0&&p.z<=z1);if(S.length<2)return null;
+  const N=Math.max(4,Math.ceil(Math.abs(a1-a0)*8));
+  const paths=S.map(s=>{const row=[];for(let k=0;k<=N;k++){const a=a0+(a1-a0)*k/N,R=s.r+off;
+    let yy=Math.sin(a)*R*s.h;const cv=Math.cos(a);if(yy<0)yy*=1-s.flat*Math.abs(cv);
+    row.push(new BABYLON.Vector3(cv*R*s.w,yy+s.yo,s.z));}return row;});
+  const m=BABYLON.MeshBuilder.CreateRibbon(name,{pathArray:paths,sideOrientation:BABYLON.Mesh.DOUBLESIDE},scene);
+  m.material=mat;m.parent=par;m.isPickable=false;return m;
+}
+function makeAirliner(col,airline){
   const r=new BABYLON.TransformNode('ai',scene);const mats=[];
-  const mb=new BABYLON.PBRMaterial('aiM'+Math.random(),scene);mb.albedoColor=new BABYLON.Color3(.95,.96,.98);mb.metallic=.08;mb.roughness=.32;
-  const ma=new BABYLON.PBRMaterial('aiA'+Math.random(),scene);ma.albedoColor=col;ma.metallic=.12;ma.roughness=.35;
-  const md=new BABYLON.StandardMaterial('aiD'+Math.random(),scene);md.diffuseColor=new BABYLON.Color3(.08,.10,.14);md.specularColor=new BABYLON.Color3(.5,.55,.65);
-  mats.push(mb,ma,md);
-  const add=(m,mat,x,y,z)=>{m.material=mat;m.parent=r;m.position.set(x,y,z);m.isPickable=false;return m;};
-  // Sleek fuselage body + tapered nosecone + tailcone
-  const f=BABYLON.MeshBuilder.CreateCylinder('aif',{height:24,diameter:3.6,tessellation:14},scene);f.rotation.x=Math.PI/2;add(f,mb,0,0,0);
-  const nose=BABYLON.MeshBuilder.CreateCylinder('ain',{height:6.5,diameterTop:.25,diameterBottom:3.6,tessellation:14},scene);nose.rotation.x=Math.PI/2;add(nose,mb,0,-.1,15.2);
-  const tailc=BABYLON.MeshBuilder.CreateCylinder('aitc',{height:7.5,diameterTop:3.6,diameterBottom:.35,tessellation:14},scene);tailc.rotation.x=Math.PI/2;add(tailc,mb,0,.35,-15.7);
-  // Dark cockpit windshield visor band
-  const ws=BABYLON.MeshBuilder.CreateCylinder('aiws',{height:1.1,diameterTop:1.7,diameterBottom:2.4,tessellation:12},scene);ws.rotation.x=Math.PI/2;ws.scaling.set(1,.55,1);add(ws,md,0,.55,14.1);
-  // Accent cheatline & belly fairing
-  add(BABYLON.MeshBuilder.CreateBox('aist',{width:3.66,height:.36,depth:22},scene),ma,0,.15,0);
-  add(BABYLON.MeshBuilder.CreateBox('aibel',{width:2.5,height:.7,depth:8},scene),mb,0,-1.55,-.5);
-  // Swept left & right wings with winglets
+  const code=airline&&airline.code;
+  const base=col?[col.r,col.g,col.b]:[.1,.3,.8];
+  const lv=Object.assign({body:[.95,.96,.98],tail:base},AI_LIVERIES[code]||{});
+  const pbr=(n,c,m,ro,cc)=>{const x=new BABYLON.PBRMaterial(n+Math.random(),scene);x.albedoColor=new BABYLON.Color3(c[0],c[1],c[2]);x.metallic=m;x.roughness=ro;
+    if(cc){x.clearCoat.isEnabled=true;x.clearCoat.intensity=.7;x.clearCoat.roughness=.08;}mats.push(x);return x;};
+  const mb=pbr('aiM',lv.body,.1,.28,true);
+  const mbel=lv.belly?pbr('aiBel',lv.belly,.1,.3,true):pbr('aiBel',[.78,.80,.83],.25,.34,false);
+  const mwing=pbr('aiW',[.74,.76,.80],.35,.34,false);
+  const mtail=pbr('aiT',[1,1,1],.1,.3,true);mtail.albedoTexture=_aiTailTex(code,lv);mtail.backFaceCulling=false;
+  const meng=pbr('aiE',lv.eng||lv.body,.15,.28,true);
+  const mst=lv.stripe?pbr('aiS',lv.stripe,.12,.3,true):null;
+  const md=pbr('aiD',[.02,.03,.05],.1,.08,true);
+  const mmet=pbr('aiMt',[.7,.72,.76],.95,.2,false);
+  const mnav=c=>{const x=new BABYLON.StandardMaterial('aiNav'+Math.random(),scene);x.emissiveColor=new BABYLON.Color3(c[0],c[1],c[2]);x.disableLighting=true;mats.push(x);return x;};
+  const add=(m,mat,x,y,z)=>{m.material=mat;m.parent=r;m.position.set(x||0,y||0,z||0);m.isPickable=false;return m;};
+  // Smooth lofted fuselage (same builder as the player aircraft), with a separate belly-colour lower skin
+  const fusSt=[{z:18.4,r:.06,h:1,yo:-.05},{z:17.6,r:.72,h:1.04,yo:-.08},{z:16.4,r:1.28,h:1.06,yo:-.1},{z:14.6,r:1.66,h:1.06,yo:-.08},
+    {z:12,r:1.8,h:1.06,yo:-.03},{z:0,r:1.82,h:1.06,yo:0},{z:-9,r:1.8,h:1.06,yo:.02},{z:-13,r:1.45,h:1.1,yo:.18},
+    {z:-16,r:.85,h:1.2,yo:.48},{z:-18.6,r:.3,h:1.3,yo:.78},{z:-19.4,r:.06,h:1.3,yo:.85}];
+  tubeSmooth('aif',fusSt,mb,r);
+  const P=Math.PI;
+  _skinPatch('aibel',fusSt,P+.42,2*P-.42,-15.2,16.6,.012,mbel,r);
+  if(mst)for(const [a0,a1] of [[-.12,.0],[P,P+.12]])_skinPatch('aist',fusSt,a0,a1,-14,16.2,.016,mst,r);
+  // Cockpit windshield visor wrapping the upper nose
+  _skinPatch('aiws',fusSt,.42,P-.42,15.0,16.15,.02,md,r);
+  // Cabin window line (dark band reads as windows at distance), both sides
+  for(const [a0,a1] of [[.17,.27],[P-.27,P-.17]])_skinPatch('aiwin',fusSt,a0,a1,-12.5,13.2,.018,md,r);
+  // Swept airfoil wings, tailplane and fin
+  const wingSt=[{s:1.4,y:-1.15,zLE:3.0,c:6.2,t:.13},{s:6.2,y:-.9,zLE:.6,c:3.6,t:.11},{s:17.2,y:-.05,zLE:-5.6,c:1.25,t:.09}];
   for(const sg of [-1,1]){
-    const iw=BABYLON.MeshBuilder.CreateBox('aiwi'+sg,{width:7.2,height:.35,depth:4.4},scene);iw.rotation.y=sg*-.34;iw.rotation.z=sg*.06;add(iw,mb,sg*4.5,-1.0,.3);
-    const ow=BABYLON.MeshBuilder.CreateBox('aiwo'+sg,{width:10.5,height:.24,depth:2.5},scene);ow.rotation.y=sg*-.44;ow.rotation.z=sg*.09;add(ow,mb,sg*12.2,-.3,-3.2);
-    const wl=BABYLON.MeshBuilder.CreateBox('aiwl'+sg,{width:.22,height:1.8,depth:1.1},scene);wl.rotation.z=sg*-.22;wl.rotation.x=-.25;add(wl,ma,sg*17.0,.9,-5.4);
-    const hs=BABYLON.MeshBuilder.CreateBox('aih'+sg,{width:5.8,height:.22,depth:2.0},scene);hs.rotation.y=sg*-.42;hs.rotation.z=sg*.08;add(hs,mb,sg*2.9,.95,-16.8);
-    // Underwing engine + pylon + intake face
-    const pyl=BABYLON.MeshBuilder.CreateBox('aipy'+sg,{width:.35,height:1.2,depth:2.6},scene);add(pyl,mb,sg*5.8,-1.5,1.2);
-    const e=BABYLON.MeshBuilder.CreateCylinder('aie'+sg,{height:4.4,diameterTop:1.85,diameterBottom:2.05,tessellation:12},scene);e.rotation.x=Math.PI/2;add(e,mb,sg*5.8,-2.2,1.6);
-    const eIn=BABYLON.MeshBuilder.CreateDisc('aiei'+sg,{radius:.88,tessellation:12},scene);eIn.rotation.y=Math.PI;add(eIn,md,sg*5.8,-2.2,3.82);
-    add(BABYLON.MeshBuilder.CreateSphere('ail'+sg,{diameter:.85},scene),M.white,sg*17.0,.4,-5.4);
+    horiz('aiw'+sg,wingSt.map(s=>({...s,s:s.s*sg})),mwing,r);
+    vert('aiwl'+sg,[{s:0,c:1.2,t:.1,zLE:-5.55},{s:2.0,c:.5,t:.08,zLE:-6.6}],meng,r).position.x=sg*17.25;
+    horiz('aih'+sg,[{s:.4*sg,y:.75,zLE:-14.4,c:3.4,t:.1},{s:6.6*sg,y:1.25,zLE:-17.6,c:1.2,t:.08}],mwing,r);
+    // Engine nacelle + pylon + dark intake + exhaust cone
+    const ex=sg*5.9;
+    tubeSmooth('aie'+sg,[{z:4.3,r:1.02,h:1},{z:3.6,r:1.12,h:1},{z:1.2,r:1.05,h:1},{z:-.6,r:.78,h:1}],meng,r).position.set(ex,-2.15,0);
+    const inl=BABYLON.MeshBuilder.CreateDisc('aiei'+sg,{radius:.98,tessellation:20},scene);inl.rotation.y=Math.PI;add(inl,md,ex,-2.15,4.25);
+    const spn=BABYLON.MeshBuilder.CreateCylinder('aisp'+sg,{height:.6,diameterTop:0,diameterBottom:.5,tessellation:12},scene);spn.rotation.x=Math.PI/2;add(spn,mmet,ex,-2.15,4.35);
+    const cone=BABYLON.MeshBuilder.CreateCylinder('aiec'+sg,{height:1.2,diameterTop:.7,diameterBottom:.1,tessellation:12},scene);cone.rotation.x=Math.PI/2;add(cone,mmet,ex,-2.15,-1.1);
+    const py=BABYLON.MeshBuilder.CreateBox('aipyb'+sg,{width:.32,height:.95,depth:3.2},scene);add(py,mb,ex,-1.4,1.2);
   }
-  // Swept vertical tailfin
-  const fn=BABYLON.MeshBuilder.CreateBox('aifn',{width:.32,height:5.8,depth:3.6},scene);fn.rotation.x=-.45;add(fn,ma,0,3.2,-15.6);
-  add(BABYLON.MeshBuilder.CreateSphere('aib',{diameter:.8},scene),M.red,0,2.0,-3);
+  const fin=vert('aifn',[{s:1.0,c:5.4,t:.1,zLE:-12.2},{s:7.4,c:1.9,t:.08,zLE:-17.2}],mtail,r);
+  // Navigation lights: red left, green right, white tail; red beacon blinks via scaling in updateTraffic
+  add(BABYLON.MeshBuilder.CreateSphere('ailL',{diameter:.5},scene),mnav([1,.08,.05]),-17.25,0,-5.6);
+  add(BABYLON.MeshBuilder.CreateSphere('ailR',{diameter:.5},scene),mnav([.1,1,.25]),17.25,0,-5.6);
+  add(BABYLON.MeshBuilder.CreateSphere('ailT',{diameter:.45},scene),mnav([1,1,1]),0,.9,-19.45);
+  const bcn=add(BABYLON.MeshBuilder.CreateSphere('aib',{diameter:.7},scene),mnav([1,.12,.05]),0,1.95,-2);
+  const strobe=add(BABYLON.MeshBuilder.CreateSphere('aistb',{diameter:.9},scene),mnav([1,1,1]),0,-1.95,1);
   r.scaling.setAll(2.1);
   const gm=new BABYLON.StandardMaterial('aiG'+Math.random(),scene);gm.emissiveColor=new BABYLON.Color3(1,.25,.15);gm.disableLighting=true;gm.alpha=.85;
   const mk=BABYLON.MeshBuilder.CreateSphere('aimk',{diameter:6,segments:8},scene);mk.material=gm;mk.parent=null;mk.applyFog=false;mk.isPickable=false;
   mats.push(gm);
-  return {root:r,mats,marker:mk};
+  const ph=Math.random()*10;
+  const blink=()=>{const tt=performance.now()/1000+ph;bcn.isVisible=(tt%1.1)<.12;strobe.isVisible=((tt+.5)%1.3)<.06||(((tt+.5)%1.3)>.18&&((tt+.5)%1.3)<.24);};
+  return {root:r,mats,marker:mk,blink};
 }
 function haversineKm(lat1, lon1, lat2, lon2){
   const R=6371;
@@ -6532,6 +6692,247 @@ const REGIONAL_AIRSPACES=[
       { code: 'AAL', callsign: 'American', prefix: 'AA', name: 'American Airlines', weight: 24, liveryColor: [.82,.84,.86] },
       { code: 'UAL', callsign: 'United', prefix: 'UA', name: 'United Airlines', weight: 18, liveryColor: [.0,.2,.5] }
     ]
+  },
+  {
+    id: 'JPN',
+    name: 'Fukuoka FIR (RJJJ)',
+    atc: 'Tokyo Control',
+    lat: 36.5, lon: 137.5, radiusKm: 1250,
+    airlines: [
+      { code: 'JAL', callsign: 'Japan Air', prefix: 'JL', name: 'Japan Airlines', weight: 44 },
+      { code: 'ANA', callsign: 'All Nippon', prefix: 'NH', name: 'ANA', weight: 44 },
+      { code: 'APJ', callsign: 'Air Peach', prefix: 'MM', name: 'Peach Aviation', weight: 6 },
+      { code: 'SKY', callsign: 'Skymark', prefix: 'BC', name: 'Skymark', weight: 6 }
+    ]
+  },
+  {
+    id: 'ZRH',
+    name: 'Swiss Radar (LSAS)',
+    atc: 'Swiss Radar',
+    lat: 47.46, lon: 8.55, radiusKm: 200,
+    airlines: [
+      { code: 'SWR', callsign: 'Swiss', prefix: 'LX', name: 'SWISS', weight: 60 },
+      { code: 'EZY', callsign: 'Easy', prefix: 'U2', name: 'easyJet', weight: 15 },
+      { code: 'DLH', callsign: 'Lufthansa', prefix: 'LH', name: 'Lufthansa', weight: 15 },
+      { code: 'EWG', callsign: 'Eurowings', prefix: 'EW', name: 'Eurowings', weight: 10 }
+    ]
+  },
+  {
+    id: 'OSA',
+    name: 'Kansai / Osaka (RJBB)',
+    atc: 'Kansai Approach',
+    lat: 34.43, lon: 135.24, radiusKm: 300,
+    airlines: [
+      { code: 'JAL', callsign: 'Japan Air', prefix: 'JL', name: 'Japan Airlines', weight: 40 },
+      { code: 'ANA', callsign: 'All Nippon', prefix: 'NH', name: 'ANA', weight: 40 },
+      { code: 'APJ', callsign: 'Air Peach', prefix: 'MM', name: 'Peach Aviation', weight: 14 },
+      { code: 'SKY', callsign: 'Skymark', prefix: 'BC', name: 'Skymark', weight: 6 }
+    ]
+  },
+  {
+    id: 'SEL',
+    name: 'Incheon FIR (RKRR)',
+    atc: 'Seoul Control',
+    lat: 37.46, lon: 126.44, radiusKm: 380,
+    airlines: [
+      { code: 'KAL', callsign: 'Koreanair', prefix: 'KE', name: 'Korean Air', weight: 58 },
+      { code: 'AAR', callsign: 'Asiana', prefix: 'OZ', name: 'Asiana Airlines', weight: 30 },
+      { code: 'JAL', callsign: 'Japan Air', prefix: 'JL', name: 'Japan Airlines', weight: 6 },
+      { code: 'CPA', callsign: 'Cathay', prefix: 'CX', name: 'Cathay Pacific', weight: 6 }
+    ]
+  },
+  {
+    id: 'TPE',
+    name: 'Taipei FIR (RCAA)',
+    atc: 'Taipei Control',
+    lat: 25.08, lon: 121.23, radiusKm: 300,
+    airlines: [
+      { code: 'EVA', callsign: 'Eva', prefix: 'BR', name: 'EVA Air', weight: 46 },
+      { code: 'CAL', callsign: 'Dynasty', prefix: 'CI', name: 'China Airlines', weight: 46 },
+      { code: 'CPA', callsign: 'Cathay', prefix: 'CX', name: 'Cathay Pacific', weight: 8 }
+    ]
+  },
+  {
+    id: 'PEK',
+    name: 'Beijing ACC (ZBPE)',
+    atc: 'Beijing Control',
+    lat: 40.08, lon: 116.58, radiusKm: 450,
+    airlines: [
+      { code: 'CCA', callsign: 'Air China', prefix: 'CA', name: 'Air China', weight: 55 },
+      { code: 'CES', callsign: 'China Eastern', prefix: 'MU', name: 'China Eastern', weight: 20 },
+      { code: 'CSN', callsign: 'China Southern', prefix: 'CZ', name: 'China Southern', weight: 20 },
+      { code: 'CHH', callsign: 'Hainan', prefix: 'HU', name: 'Hainan Airlines', weight: 5 }
+    ]
+  },
+  {
+    id: 'SHA',
+    name: 'Shanghai ACC (ZSHA)',
+    atc: 'Shanghai Control',
+    lat: 31.14, lon: 121.8, radiusKm: 380,
+    airlines: [
+      { code: 'CES', callsign: 'China Eastern', prefix: 'MU', name: 'China Eastern', weight: 55 },
+      { code: 'CCA', callsign: 'Air China', prefix: 'CA', name: 'Air China', weight: 20 },
+      { code: 'CSN', callsign: 'China Southern', prefix: 'CZ', name: 'China Southern', weight: 20 },
+      { code: 'CHH', callsign: 'Hainan', prefix: 'HU', name: 'Hainan Airlines', weight: 5 }
+    ]
+  },
+  {
+    id: 'CAN',
+    name: 'Guangzhou ACC (ZGGG)',
+    atc: 'Guangzhou Control',
+    lat: 23.39, lon: 113.3, radiusKm: 220,
+    airlines: [
+      { code: 'CSN', callsign: 'China Southern', prefix: 'CZ', name: 'China Southern', weight: 65 },
+      { code: 'CES', callsign: 'China Eastern', prefix: 'MU', name: 'China Eastern', weight: 15 },
+      { code: 'CCA', callsign: 'Air China', prefix: 'CA', name: 'Air China', weight: 15 },
+      { code: 'CPA', callsign: 'Cathay', prefix: 'CX', name: 'Cathay Pacific', weight: 5 }
+    ]
+  },
+  {
+    id: 'SIN',
+    name: 'Singapore FIR (WSJC)',
+    atc: 'Singapore Radar',
+    lat: 1.36, lon: 103.99, radiusKm: 450,
+    airlines: [
+      { code: 'SIA', callsign: 'Singapore', prefix: 'SQ', name: 'Singapore Airlines', weight: 58 },
+      { code: 'TGW', callsign: 'Scooter', prefix: 'TR', name: 'Scoot', weight: 30 },
+      { code: 'CPA', callsign: 'Cathay', prefix: 'CX', name: 'Cathay Pacific', weight: 6 },
+      { code: 'QFA', callsign: 'Qantas', prefix: 'QF', name: 'Qantas', weight: 6 }
+    ]
+  },
+  {
+    id: 'BKK',
+    name: 'Bangkok FIR (VTBB)',
+    atc: 'Bangkok Control',
+    lat: 13.69, lon: 100.75, radiusKm: 450,
+    airlines: [
+      { code: 'THA', callsign: 'Thai', prefix: 'TG', name: 'Thai Airways', weight: 70 },
+      { code: 'SIA', callsign: 'Singapore', prefix: 'SQ', name: 'Singapore Airlines', weight: 15 },
+      { code: 'CPA', callsign: 'Cathay', prefix: 'CX', name: 'Cathay Pacific', weight: 15 }
+    ]
+  },
+  {
+    id: 'DEL',
+    name: 'Delhi FIR (VIDF)',
+    atc: 'Delhi Control',
+    lat: 28.56, lon: 77.1, radiusKm: 700,
+    airlines: [
+      { code: 'IGO', callsign: 'Ifly', prefix: '6E', name: 'IndiGo', weight: 58 },
+      { code: 'AIC', callsign: 'Air India', prefix: 'AI', name: 'Air India', weight: 42 }
+    ]
+  },
+  {
+    id: 'SYD',
+    name: 'Sydney / Melbourne (YMMM)',
+    atc: 'Melbourne Centre',
+    lat: -35.5, lon: 149.0, radiusKm: 900,
+    airlines: [
+      { code: 'QFA', callsign: 'Qantas', prefix: 'QF', name: 'Qantas', weight: 52 },
+      { code: 'VOZ', callsign: 'Velocity', prefix: 'VA', name: 'Virgin Australia', weight: 28 },
+      { code: 'JST', callsign: 'Jetstar', prefix: 'JQ', name: 'Jetstar', weight: 20 }
+    ]
+  },
+  {
+    id: 'IST',
+    name: 'Istanbul ACC (LTBB)',
+    atc: 'Istanbul Control',
+    lat: 41.26, lon: 28.74, radiusKm: 500,
+    airlines: [
+      { code: 'THY', callsign: 'Turkish', prefix: 'TK', name: 'Turkish Airlines', weight: 80 },
+      { code: 'DLH', callsign: 'Lufthansa', prefix: 'LH', name: 'Lufthansa', weight: 10 },
+      { code: 'UAE', callsign: 'Emirates', prefix: 'EK', name: 'Emirates', weight: 10 }
+    ]
+  },
+  {
+    id: 'AMS',
+    name: 'Amsterdam (EHAA)',
+    atc: 'Amsterdam Radar',
+    lat: 52.31, lon: 4.76, radiusKm: 220,
+    airlines: [
+      { code: 'KLM', callsign: 'KLM', prefix: 'KL', name: 'KLM', weight: 72 },
+      { code: 'EZY', callsign: 'Easy', prefix: 'U2', name: 'easyJet', weight: 14 },
+      { code: 'DLH', callsign: 'Lufthansa', prefix: 'LH', name: 'Lufthansa', weight: 7 },
+      { code: 'BAW', callsign: 'Speedbird', prefix: 'BA', name: 'British Airways', weight: 7 }
+    ]
+  },
+  {
+    id: 'MAD',
+    name: 'Madrid ACC (LECM)',
+    atc: 'Madrid Control',
+    lat: 40.47, lon: -3.56, radiusKm: 500,
+    airlines: [
+      { code: 'IBE', callsign: 'Iberia', prefix: 'IB', name: 'Iberia', weight: 62 },
+      { code: 'RYR', callsign: 'Ryanair', prefix: 'FR', name: 'Ryanair', weight: 22 },
+      { code: 'EZY', callsign: 'Easy', prefix: 'U2', name: 'easyJet', weight: 8 },
+      { code: 'AFR', callsign: 'Airfrans', prefix: 'AF', name: 'Air France', weight: 8 }
+    ]
+  },
+  {
+    id: 'YYZ',
+    name: 'Toronto Centre (CZYZ)',
+    atc: 'Toronto Centre',
+    lat: 43.68, lon: -79.63, radiusKm: 500,
+    airlines: [
+      { code: 'ACA', callsign: 'Air Canada', prefix: 'AC', name: 'Air Canada', weight: 62 },
+      { code: 'WJA', callsign: 'Westjet', prefix: 'WS', name: 'WestJet', weight: 30 },
+      { code: 'UAL', callsign: 'United', prefix: 'UA', name: 'United Airlines', weight: 8 }
+    ]
+  },
+  {
+    id: 'ORD',
+    name: 'Chicago Center (ZAU)',
+    atc: 'Chicago Center',
+    lat: 41.98, lon: -87.9, radiusKm: 400,
+    airlines: [
+      { code: 'UAL', callsign: 'United', prefix: 'UA', name: 'United Airlines', weight: 46 },
+      { code: 'AAL', callsign: 'American', prefix: 'AA', name: 'American Airlines', weight: 38 },
+      { code: 'SWA', callsign: 'Southwest', prefix: 'WN', name: 'Southwest', weight: 16 }
+    ]
+  },
+  {
+    id: 'ATL',
+    name: 'Atlanta Center (ZTL)',
+    atc: 'Atlanta Center',
+    lat: 33.64, lon: -84.43, radiusKm: 400,
+    airlines: [
+      { code: 'DAL', callsign: 'Delta', prefix: 'DL', name: 'Delta Air Lines', weight: 78 },
+      { code: 'SWA', callsign: 'Southwest', prefix: 'WN', name: 'Southwest', weight: 12 },
+      { code: 'AAL', callsign: 'American', prefix: 'AA', name: 'American Airlines', weight: 10 }
+    ]
+  },
+  {
+    id: 'DFW',
+    name: 'Fort Worth Center (ZFW)',
+    atc: 'Fort Worth Center',
+    lat: 32.9, lon: -97.04, radiusKm: 400,
+    airlines: [
+      { code: 'AAL', callsign: 'American', prefix: 'AA', name: 'American Airlines', weight: 70 },
+      { code: 'SWA', callsign: 'Southwest', prefix: 'WN', name: 'Southwest', weight: 20 },
+      { code: 'UAL', callsign: 'United', prefix: 'UA', name: 'United Airlines', weight: 10 }
+    ]
+  },
+  {
+    id: 'MEX',
+    name: 'Mexico ACC (MMFR)',
+    atc: 'Mexico Control',
+    lat: 19.44, lon: -99.07, radiusKm: 450,
+    airlines: [
+      { code: 'AMX', callsign: 'Aeromexico', prefix: 'AM', name: 'Aeromexico', weight: 65 },
+      { code: 'DAL', callsign: 'Delta', prefix: 'DL', name: 'Delta Air Lines', weight: 15 },
+      { code: 'AAL', callsign: 'American', prefix: 'AA', name: 'American Airlines', weight: 10 },
+      { code: 'UAL', callsign: 'United', prefix: 'UA', name: 'United Airlines', weight: 10 }
+    ]
+  },
+  {
+    id: 'GRU',
+    name: 'Brasilia / Sao Paulo (SBBS)',
+    atc: 'Sao Paulo Control',
+    lat: -23.43, lon: -46.47, radiusKm: 600,
+    airlines: [
+      { code: 'TAM', callsign: 'Tam', prefix: 'LA', name: 'LATAM Brasil', weight: 36 },
+      { code: 'GLO', callsign: 'Gol Transporte', prefix: 'G3', name: 'GOL', weight: 36 },
+      { code: 'AZU', callsign: 'Azul', prefix: 'AD', name: 'Azul', weight: 28 }
+    ]
   }
 ];
 function getCurrentAirspace(lat, lon){
@@ -6565,12 +6966,19 @@ function pickAirspaceAirline(as){
   }
   return list[0]||{ code: 'UAL', callsign: 'United', prefix: 'UA', name: 'United', liveryColor: [.0,.2,.5] };
 }
+/* Airport ground traffic wears the local carriers' colours too (world origin = active airport). */
+function _regionalParkedAirliner(fallbackCol){
+  let al=null;
+  try{const ll=worldToLL(0,0);al=pickAirspaceAirline(getCurrentAirspace(ll.lat,ll.lon));}catch(e){}
+  const c=(al&&al.liveryColor)||fallbackCol;
+  return makeAirliner(new BABYLON.Color3(c[0],c[1],c[2]),al);
+}
 function spawnTraffic(threat){
   const ll=worldToLL(plane.pos.x,plane.pos.z);
   const curAirspace=getCurrentAirspace(ll.lat,ll.lon);
   const airline=pickAirspaceAirline(curAirspace);
   const c=airline.liveryColor||[.1,.3,.8];
-  const ac=makeAirliner(new BABYLON.Color3(c[0],c[1],c[2]));
+  const ac=makeAirliner(new BABYLON.Color3(c[0],c[1],c[2]),airline);
   const callsign=airline.callsign+' '+(100+(Math.random()*899)|0);
   const flightNo=airline.prefix+(100+(Math.random()*899)|0);
   let pos,vel,homing=0;
@@ -6594,7 +7002,7 @@ function spawnTraffic(threat){
   }
   ac.root.position.copyFrom(pos);
   if(threat)homing=.13;
-  traffic.push({homing:homing,root:ac.root,marker:ac.marker,mats:ac.mats,pos:pos,vel:vel,threat:!!threat,lvl:0,dz:0,range:0,callsign:callsign,flightNo:flightNo,airline:airline.name});
+  traffic.push({homing:homing,root:ac.root,marker:ac.marker,mats:ac.mats,blink:ac.blink,airlineCode:airline.code,atcCallsign:airline.callsign,pos:pos,vel:vel,threat:!!threat,lvl:0,dz:0,range:0,callsign:callsign,flightNo:flightNo,airline:airline.name});
 }
 function spawnIntruder(){
   if(plane.onGround||plane.crashed){showMsg('COLLISION FAULT · AIRBORNE ONLY',2500);faults.clear('COLLISION');return;}
@@ -6763,15 +7171,15 @@ function updateTraffic(dt){
   const tcasAudioInhibited=!flying||agl<365||plane.gearPos>0.35||inApproach;
   trafficSpawnT-=dt;
   if(flying&&trafficSpawnT<=0){
-    trafficSpawnT=26+Math.random()*16;
-    if(!inApproach&&traffic.filter(t=>!t.threat).length<2&&agl>950)spawnTraffic(false);
+    trafficSpawnT=14+Math.random()*12;
+    if(!inApproach&&traffic.filter(t=>!t.threat).length<4&&agl>950)spawnTraffic(false);
   }
   let lvl=0,ra=null;
   for(let i=traffic.length-1;i>=0;i--){
     const t=traffic[i];
     if(t.homing&&t.range>350){const sp=t.vel.length(),dn=plane.pos.subtract(t.pos).normalize(),cn=t.vel.scale(1/sp);
       t.vel=cn.add(dn.subtract(cn).scale(Math.min(1,t.homing*dt))).normalize().scale(sp);}
-    t.pos.addInPlace(t.vel.scale(dt));t.root.position.copyFrom(t.pos);t.marker.position.set(t.pos.x,t.pos.y+8,t.pos.z);{const dd=BABYLON.Vector3.Distance(t.pos,camera.position);t.marker.scaling.setAll(Math.max(1,dd/160));t.marker.isVisible=false;}t.root.rotation.y=Math.atan2(t.vel.x,t.vel.z);
+    t.pos.addInPlace(t.vel.scale(dt));t.root.position.copyFrom(t.pos);t.marker.position.set(t.pos.x,t.pos.y+8,t.pos.z);{const dd=BABYLON.Vector3.Distance(t.pos,camera.position);t.marker.scaling.setAll(Math.max(1,dd/160));t.marker.isVisible=false;}t.root.rotation.y=Math.atan2(t.vel.x,t.vel.z);if(t.blink)try{t.blink();}catch(e){}
     const rel=t.pos.subtract(plane.pos),rv=t.vel.subtract(plane.vel),r=rel.length();
     if(r>26000||(t.threat&&!wantThreat)||(!t.threat&&inApproach&&r<4200)){removeTraffic(i);continue;}
     const v2=rv.lengthSquared(),tc=v2>1?-BABYLON.Vector3.Dot(rel,rv)/v2:0;
@@ -8756,7 +9164,7 @@ function createRunway(code){
      for(const m of litMats){try{if(m.emissiveColor)m.emissiveColor.set(nt?.9:.06,nt?.78:.07,nt?.5:.08);}catch(e){}}
      if(window._ksBeacon){const bc=window._ksBeacon;if(!bc.isDisposed())bc.setEnabled(((performance.now()/1000)%2)<.2);}});}
   {const cols=[[.85,.1,.1],[.1,.4,.85],[.9,.6,.1]];ksTaxi.length=0;
-   for(let i=0;i<3;i++){try{const a=makeAirliner(new BABYLON.Color3(...cols[i]));a.marker.dispose();a.root.parent=root;a.root.scaling.setAll(1.3);
+   for(let i=0;i<3;i++){try{const a=_regionalParkedAirliner(cols[i]);a.marker.dispose();a.root.parent=root;a.root.scaling.setAll(1.3);
      a.root.getChildMeshes().forEach(m=>m.isPickable=false);
      ksTaxi.push({r:a.root,s:300+i*900,dir:i%2?-1:1,wait:0,line:lineB,L:R0.len-300});apNodes.push(a.root);}catch(e){}}}
 }
@@ -8870,7 +9278,7 @@ let landingOn=true;const llights=[];
 const taxiers=[];
 {const _cr=createRunway;createRunway=function(code){_cr(code);taxiers.length=0;const g=window.apGeo;if(!g||!RUNWAYS[code]||RUNWAYS[code].custom)return;
   const cols=[[.85,.1,.1],[.1,.4,.85],[.9,.6,.1]];
-  for(let i=0;i<3;i++){const a=makeAirliner(new BABYLON.Color3(...cols[i]));a.marker.dispose();a.root.parent=g.root;a.root.scaling.setAll(1.3);
+  for(let i=0;i<3;i++){const a=_regionalParkedAirliner(cols[i]);a.marker.dispose();a.root.parent=g.root;a.root.scaling.setAll(1.3);
     a.root.getChildMeshes().forEach(m=>m.isPickable=false);const dir=i%2?-1:1;
     taxiers.push({r:a.root,z:(i-1)*g.L*.28,dir,x:g.tx,L:g.L,wait:0});a.root.position.set(g.tx,2.4,(i-1)*g.L*.28);a.root.rotation.y=dir>0?0:Math.PI;apNodes.push(a.root);}
 };}
@@ -8997,8 +9405,20 @@ const atc=(function(){
     if(openPageLink)openPageLink.href='atc.html?center='+encodeURIComponent(st.centerId||'GLOBAL');
     if(ctrSel)ctrSel.value=st.manualCenter?st.centerId:'AUTO';
   };
-  const say=(who,txt)=>{const d=document.createElement('div');d.className=who==='p'?'p':'a';d.textContent=(who==='p'?'▶ '+st.cs+': ':'◀ ')+txt;log.appendChild(d);log.scrollTop=log.scrollHeight;
-    if(who==='a'&&st.voice&&window.speechSynthesis&&!(_sfxCur&&!_sfxCur.paused&&!_sfxCur.ended)){try{const u=new SpeechSynthesisUtterance(txt.replace(/Babylon/,'Babylon'));u.rate=1.1;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}}};
+  /* who: 'p' = you, 'a' = controller, 'o' = other (AI) pilot on frequency */
+  let _voices=[];const _pickVoices=()=>{try{_voices=(speechSynthesis.getVoices()||[]).filter(v=>/^en/i.test(v.lang));}catch(e){}};
+  try{_pickVoices();speechSynthesis.addEventListener&&speechSynthesis.addEventListener('voiceschanged',_pickVoices);}catch(e){}
+  const say=(who,txt)=>{const d=document.createElement('div');d.className=who==='p'?'p':'a';
+    if(who==='o'){d.style.color='#93c5fd';d.style.fontWeight='500';}
+    d.textContent=(who==='p'?'▶ '+st.cs+': ':who==='o'?'◇ ':'◀ ')+txt;log.appendChild(d);
+    while(log.childNodes.length>160)log.removeChild(log.firstChild);
+    log.scrollTop=log.scrollHeight;
+    if(who!=='p'&&st.voice&&window.speechSynthesis&&!(_sfxCur&&!_sfxCur.paused&&!_sfxCur.ended)){try{
+      if(who==='o'&&speechSynthesis.pending)return; // never let chatter pile up behind real clearances
+      const u=new SpeechSynthesisUtterance(txt);u.rate=who==='o'?1.18:1.08;u.pitch=who==='o'?.85+Math.random()*.4:1;
+      if(_voices.length)u.voice=who==='o'?_voices[(Math.random()*_voices.length)|0]:_voices[0];
+      if(who==='a')playSquelch();
+      speechSynthesis.speak(u);}catch(e){}}};
   const code=()=>(currentLocation.code||'UNKN');
   const rwy=()=>{const R=RUNWAYS[(currentLocation&&currentLocation.code)||''];if(R&&R.des)return R.des[0];let h=Math.round(runwayHdgDeg/10)%36;if(h===0)h=36;return String(h).padStart(2,'0');};
   const wind=()=>{const w=currentWeather||{wind:5};return String(((Math.round(runwayHdgDeg/10)*10+((w.wind*7)%40)-20+360)%360)||360).padStart(3,'0')+' at '+Math.max(2,Math.round(w.wind*1.94));};
@@ -9050,7 +9470,10 @@ const atc=(function(){
     if(!best||best.d>(force?40000:11000))return force?st.cs+', no traffic observed.':null;
     const brg=(Math.atan2(best.dx,-best.dz)*180/Math.PI+360)%360,rel=(brg-heading()+360)%360;let clk=Math.round(rel/30);if(clk===0)clk=12;
     const dy=(best.t.pos.y-plane.pos.y)*3.28084,alt=Math.abs(dy)<400?'same altitude':(dy>0?Math.round(dy/100)*100+' feet above':Math.round(-dy/100)*100+' feet below');
-    return st.cs+', traffic, '+clk+' o\'clock, '+(best.d/1852).toFixed(1)+' miles, '+alt+'.';};
+    const th=(Math.atan2(best.t.vel.x,-best.t.vel.z)*180/Math.PI+360)%360,dh=Math.abs(((th-heading())+540)%360-180);
+    const dir=dh<35?'same direction':dh>145?'opposite direction':(((th-brg)+540)%360-180)<0?'crossing right to left':'crossing left to right';
+    const who=best.t.atcCallsign?(best.t.airline||'')+', Boeing 737':'a heavy jet';
+    return st.cs+', traffic, '+clk+' o\'clock, '+(best.d/1852).toFixed(1)+' miles, '+dir+', '+alt+', '+who+'.';};
   const btns=[['atis','ATIS',acts.atis],['ifr','Clearance delivery',acts.ifr],['push','Pushback / startup',acts.push],['taxi','Taxi',acts.taxi],['lu','Line up & wait',acts.lineup],['tk','Takeoff',acts.tkoff],['v','Vectors / approach',acts.vec],['l','Landing',acts.land],['g','Go around',acts.go],['t','Traffic',acts.tfc],['e','MAYDAY',acts.emg]];
   const bb=document.getElementById('atcB');btns.forEach(b=>{const e=document.createElement('button');e.textContent=b[1];e.addEventListener('click',b[2]);bb.appendChild(e);});
   const tog=()=>{
@@ -9078,6 +9501,65 @@ const atc=(function(){
     if(st.phase==='land'&&air&&agl()<400&&agl()>50&&!st._tw){st._tw=1;say('a',st.cs+', wind '+wind()+', runway '+rwy()+' cleared to land.');}
     if(!air)st._tw=0;
     lastAir=air;
+  },1000);
+  /* ---- Regional ATC life: handoffs, step climbs, altitude monitoring, AI chatter ---- */
+  const lx={as:null,lastChat:performance.now(),clearedFt:0,devT:0,crashed:false,cruise:0};
+  const fl=ft=>ft>=18000?'flight level '+String(Math.round(ft/100)).replace(/(\d)/g,'$1 ').trim():Math.round(ft)+' feet';
+  const altFt=()=>plane.pos.y*3.28084;
+  const regionNow=()=>{try{const ll=worldToLL(plane.pos.x,plane.pos.z);return getCurrentAirspace(ll.lat,ll.lon);}catch(e){return null;}};
+  const radioFreq=as=>{let h=0;for(const ch of (as&&as.id)||'G')h=(h*17+ch.charCodeAt(0))%977;return (119+(h%17)+((h%40)*.025)).toFixed(3);};
+  const chatter=()=>{
+    const as=lx.as||regionNow();if(!as)return;const al=pickAirspaceAirline(as);if(!al)return;
+    const cs=al.callsign+' '+(100+((Math.random()*899)|0));
+    const lvl=Math.round((240+Math.random()*160)/10)*10,hdg=pad(Math.random()*360);
+    const nf=radioFreq({id:as.id+'N'});
+    const lines=[
+      [['o',as.atc+', '+cs+', passing flight level '+(lvl-40)+' for '+lvl+'.'],['a',cs+', '+as.atc+', radar contact, climb and maintain flight level '+lvl+'.'],['o','Climb flight level '+lvl+', '+cs+'.']],
+      [['a',cs+', turn right heading '+hdg+', vectors for spacing.'],['o','Right heading '+hdg+', '+cs+'.']],
+      [['a',cs+', descend and maintain flight level '+(lvl-120)+', expect the ILS.'],['o','Down to flight level '+(lvl-120)+', '+cs+'.']],
+      [['a',cs+', contact '+as.atc+' on '+nf+', good day.'],['o',nf+', '+cs+', good day.']],
+      [['o',as.atc+', '+cs+', request direct to the next waypoint.'],['a',cs+', cleared direct, resume own navigation.'],['o','Direct, '+cs+'.']],
+      [['a',cs+', reduce speed 250 knots.'],['o','Speed 250, '+cs+'.']],
+      [['o',as.atc+', '+cs+', request ride reports at this level.'],['a',cs+', smooth reported at flight level '+lvl+'.'],['o','Thanks, '+cs+'.']]
+    ];
+    lines[(Math.random()*lines.length)|0].forEach(([w,t],i)=>setTimeout(()=>say(w,t),i*3400));
+  };
+  setInterval(()=>{
+    const air=!plane.onGround&&!plane.crashed;
+    // Crash: controller loses the target and alerts rescue
+    if(plane.crashed&&!lx.crashed){lx.crashed=true;const as=lx.as||regionNow();
+      setTimeout(()=>say('a',st.cs+', '+((as&&as.atc)||code()+' Approach')+', radar contact lost. '+st.cs+', how do you read? ... All stations, emergency in progress, rescue services are being dispatched.'),2200);
+      st.phase='ramp';lx.clearedFt=0;return;}
+    if(!plane.crashed)lx.crashed=false;
+    if(!air){lx.clearedFt=0;lx.cruise=0;lx.fieldFt=altFt();return;}
+    const ft=altFt(),g=agl();
+    // Airspace handoff when the active region changes
+    const as=regionNow();
+    if(as&&lx.as&&as.id!==lx.as.id&&g>3000){
+      say('a',st.cs+', '+lx.as.atc+', contact '+as.atc+' on '+radioFreq(as)+', good day.');
+      readback(radioFreq(as)+', '+st.cs+', good day.',2000);
+      setTimeout(()=>say('a',st.cs+', '+as.atc+', radar contact'+(lx.clearedFt?', maintain '+fl(lx.clearedFt):'')+'.'),5200);
+    }
+    if(as)lx.as=as;
+    // Departure: cleared 5000 on the ground, then step climbs to a cruise level
+    if(st.phase==='climb'||st.phase==='cruise'){
+      // initial clearance is 5000 ft or ~4000 ft above a high-elevation field; if already high, start from present level
+      const base=Math.max(5000,Math.ceil(((lx.fieldFt||0)+4000)/1000)*1000);
+      if(!lx.cruise)lx.cruise=(28+((hash()%12)|0))*1000;
+      if(!lx.clearedFt)lx.clearedFt=ft>base+1000?Math.min(lx.cruise,Math.ceil(ft/1000)*1000):base;
+      if(ft>lx.cruise)lx.cruise=Math.ceil(ft/1000)*1000;
+      if(lx.clearedFt<lx.cruise&&ft>lx.clearedFt-600){
+        const next=Math.min(lx.cruise,lx.clearedFt<10000?lx.clearedFt+(lx.clearedFt<6000?5000:6000):lx.cruise);
+        lx.clearedFt=next;const ctr=(as&&as.atc)||code()+' Departure';
+        say('a',st.cs+', '+ctr+', climb and maintain '+fl(next)+'.');readback('Climb and maintain '+fl(next)+', '+st.cs+'.',2100);
+        if(next>=lx.cruise)st.phase='cruise';
+      }
+      // Altitude deviation (more than 400 ft above the cleared level, not in a fresh climb clearance)
+      if(lx.clearedFt&&ft>lx.clearedFt+400&&performance.now()-lx.devT>45000){lx.devT=performance.now();
+        say('a',st.cs+', check altitude, you were cleared to '+fl(lx.clearedFt)+'. Say altitude.');}
+    }
+    // Background frequency chatter from regional AI traffic (only while no own clearance is being read)
+    if(g>1500&&!(window.speechSynthesis&&speechSynthesis.speaking)&&performance.now()-lx.lastChat>(45000+Math.random()*40000)){lx.lastChat=performance.now();chatter();}
   },1000);
   const setControllers=(list)=>{
     st.controllers=Array.isArray(list)?list:[];
@@ -11687,7 +12169,9 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
       panes:{z:32,k:1.4},lip:[.85,.1,.1]
     };
   })();
-    function surfHW(st,z,y){
+    function surfHW(st0,z,y){
+    /* sample the same smoothed skin tubeSmooth builds, so windows/doors sit flush on it */
+    const C=surfHW._c||(surfHW._c=new WeakMap());let st=C.get(st0);if(!st){st=_smoothStations(st0);C.set(st0,st);}
     for(let i=0;i<st.length-1;i++){
       const a=st[i],b=st[i+1],hi=Math.max(a.z,b.z),lo=Math.min(a.z,b.z);
       if(z<=hi&&z>=lo&&hi>lo){
@@ -14250,7 +14734,7 @@ void main(){
       rec.targetQuat.copyFrom(rec.quat);
       rec.mesh.root.position.copyFrom(rec.pos);
       rec.mesh.root.rotationQuaternion.copyFrom(rec.quat);
-      rec.mesh.root.setEnabled(!!rec.flying);
+      rec.mesh.root.setEnabled(!!rec.flying&&!rec.crashed);
     }
   }
 
@@ -14315,8 +14799,13 @@ void main(){
       if(Number.isFinite(p.vs))rec.vs=p.vs;
       if(Number.isFinite(p.gearPos))rec.gearPos=p.gearPos;
       if(Number.isFinite(p.throttle))rec.throttle=p.throttle;
+      const wasCrashed=rec.crashed;
       rec.crashed=!!p.crashed;
       if(p.flying!==undefined)rec.flying=!!p.flying;
+      if(!wasCrashed&&rec.crashed){
+        if(window._mpTrackId===rec.id)window._mpTrackId=null;
+        try{showMsg('📡 RADAR CONTACT LOST · '+rec.callsign,2600);}catch(e){}
+      }
       const w=llToWorld(rec.lat,rec.lon);
       rec.targetPos.set(w.x,rec.alt,w.z);
       rec.targetQuat.set(rec.qx,rec.qy,rec.qz,rec.qw);
@@ -14342,7 +14831,7 @@ void main(){
     const id=window._mpTrackId;
     if(!id)return null;
     const rec=remotes.get(id);
-    if(!rec||!rec.flying)return null;
+    if(!rec||!rec.flying||rec.crashed)return null;
     const w=llToWorld(rec.lat,rec.lon);
     const dx=w.x-plane.pos.x,dz=w.z-plane.pos.z;
     const distNm=Math.hypot(dx,dz)/1852;
@@ -14385,7 +14874,7 @@ void main(){
   function syncRemoteExport(){
     const list=[];
     for(const rec of remotes.values()){
-      if(!rec.flying)continue;
+      if(!rec.flying||rec.crashed)continue;
       const w=llToWorld(rec.lat,rec.lon);
       const distNm=Math.hypot(w.x-plane.pos.x,w.z-plane.pos.z)/1852;
       list.push({
@@ -14830,7 +15319,7 @@ void main(){
     }catch(e){}
   },20000);
   setInterval(()=>{
-    if(transport!=='mqtt'||!connected||!remotes.size)return;
+    if(!connected||!remotes.size)return;
     const now=Date.now();
     let pruned=false;
     for(const [id,rec] of remotes.entries()){
@@ -14850,6 +15339,8 @@ void main(){
       if(transport==='mqtt'&&myId){
         ws.send(mqttCodec.encodePublish(MQTT_PREFIX+'/leave',JSON.stringify({id:myId,callsign:savedCall})));
         ws.send(mqttCodec.encodeDisconnect());
+      }else if(transport!=='mqtt'){
+        ws.send(JSON.stringify({type:'leave'}));
       }
     }catch(e){}
   };
@@ -14871,7 +15362,7 @@ void main(){
     const idMat=BABYLON.Matrix.Identity();
 
     for(const rec of remotes.values()){
-      if(!rec.flying){
+      if(!rec.flying||rec.crashed){
         if(rec.mesh&&rec.mesh.root&&rec.mesh.root.isEnabled())rec.mesh.root.setEnabled(false);
         if(rec.labelEl)rec.labelEl.style.display='none';
         continue;
@@ -14965,6 +15456,7 @@ void main(){
   try{put('updateChips',updateChips);}catch(e){}
   try{window._setWxPreset=k=>{if(WEATHER[k]){currentWeather=WEATHER[k];const sel=document.getElementById('wxSel');if(sel)sel.value=k;applyEnvironment();applyWeatherVisuals();updateChips();}};}catch(e){}
 })();
+} /* end main */
 
 (function(){const prevTD=window._onTouchdown;window._onTouchdown=(sink,hs,noGear,water)=>{try{prevTD&&prevTD(sink,hs,noGear,water);}catch(e){}try{if(!noGear&&!water)window._ambThump&&window._ambThump(Math.min(1,sink/8));}catch(e){}};})();
 
