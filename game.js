@@ -3284,6 +3284,7 @@ for(const s of [-1,1]){
     mt.transparencyMode=BABYLON.Material.MATERIAL_ALPHATEST;
     mt.alphaCutOff=0.45;
     mt.disableLighting=false;mt.backFaceCulling=false;mt.specularColor=new BABYLON.Color3(.08,.08,.10);
+    (window._hpMats=window._hpMats||[]).push(mt);
     const pl=BABYLON.MeshBuilder.CreatePlane('hpP'+i,{width:len,height:2.3,sideOrientation:BABYLON.Mesh.DOUBLESIDE},scene);
     pl.parent=g;pl.rotation.y=Math.PI/2;pl.position.y=.25;pl.material=mt;pl.isPickable=false;
   }
@@ -3314,6 +3315,18 @@ interiorRoot.getChildMeshes().forEach(m=>{
   if(m.material&&m.material.environmentIntensity!==undefined&&m.material!==M.glass&&m.material!==M.windshieldGlass&&m.material!==M.sideGlass)m.material.environmentIntensity=.85;
 });
 interiorRoot.setEnabled(false);
+
+/* Flight-deck colour scheme per type: 737NG/MAX light Boeing grey, 777 / 767 / 747-400 warm brown-tan. */
+window._cockpitTheme=function(id){
+  const brown=/^(b777|b767|b747|b748|l1011)$/.test(id||'');
+  const T=brown?{body:[.47,.38,.29],panel:[.24,.19,.15],liner:[1.0,.80,.60],linerE:[.16,.12,.08],seat:[.80,.72,.58]}
+                :{body:[.60,.63,.66],panel:[.30,.345,.39],liner:[.82,.84,.86],linerE:[.18,.20,.22],seat:[.86,.88,.90]};
+  const c=a=>new BABYLON.Color3(a[0],a[1],a[2]);
+  M.cockpitBody.albedoColor=c(T.body);M.cockpitPanel.albedoColor=c(T.panel);M.seat.albedoColor=c(T.seat);
+  // the liner texture is also used as an (untinted) emissive layer; for the brown deck drop it and glow warm instead
+  for(const m of window._hpMats||[]){if(m._emTex===undefined)m._emTex=m.emissiveTexture;
+    m.emissiveTexture=brown?null:m._emTex;m.diffuseColor=c(T.liner);m.emissiveColor=brown?c([.34,.26,.18]):c(T.linerE);}
+};
 
 /* ============ FLIGHT MODEL ============ */
 const ACFG={
@@ -12219,7 +12232,7 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
       wing:[{s:2.6,y:-1.5,zLE:4.5,c:9.5},{s:13,y:-.6,zLE:-3,c:5.5},{s:26.5,y:1.4,zLE:-13,c:1.6}],fin:{top:11,zLE:-28,c:2.6},
       windows:{z0:22,z1:-20,step:.85,y:.85,w:.24,h:.32},
       stripes:[[-.8,-.25,[.05,.2,.45]],[-.18,-.04,[.75,.75,.78]]],stripeZ:[23,-21],
-      finColor:[.05,.2,.45],engines:[{x:8.8,y:-2.9,zF:5.25,zR:-2.25,r:1.75,pylon:true},{x:-8.8,y:-2.9,zF:5.25,zR:-2.25,r:1.75,pylon:true}],
+      finColor:[.05,.2,.45],engines:[{x:8.9,y:-3.15,zF:5.7,zR:-2.1,r:2.05,pylon:true},{x:-8.9,y:-3.15,zF:5.7,zR:-2.1,r:2.05,pylon:true}],
       panes:{z:26.6,k:1.25},lip:[.85,.85,.88]
     };
     DRESS.concorde={
@@ -12572,7 +12585,7 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
   function buildDHC8Model(){const g=buildJet('dhc8',{fus:[{z:16.5,r:.08},{z:15.4,r:.7},{z:13.6,r:1.2},{z:9,r:1.35},{z:-6,r:1.35},{z:-11,r:1.05,yo:.35},{z:-15,r:.45,yo:.95},{z:-16.4,r:.1,yo:1.15}].map(p=>({w:1,h:1,yo:0,flat:.15,...p})),wing:[{s:1.3,c:2.9,t:.16,zLE:2.3,y:1.5},{s:7,c:2.5,t:.14,zLE:2.0,y:1.55},{s:14.1,c:1.2,t:.11,zLE:1.3,y:1.6}],fin:[{s:1.3,c:4.2,t:.14,zLE:-10.5},{s:4,c:3,t:.12,zLE:-13.3},{s:6.4,c:1.9,t:.1,zLE:-15.2}],htail:[{s:.2,c:2.4,t:.12,zLE:-14.6,y:6.4},{s:4.2,c:1.3,t:.1,zLE:-15.9,y:6.4}],engines:[{x:4.2,y:1.05,z:-.2,r:.62,len:6.6},{x:-4.2,y:1.05,z:-.2,r:.62,len:6.6}],ws:[1.2,.75,.75,14.6],gear:[[0,13.2],[-4.2,-.6],[4.2,-.6]],gh:2.3});
     const gear=g.metadata.gearGroup;for(const sd of [-1,1])cyl(gear,'dhc8_strutLong',.14,.14,1.4,MAT.gear,[sd*4.2,-.25,-.6]);cyl(gear,'dhc8_strutNose',.1,.1,1.0,MAT.gear,[0,-.9,13.2]);return g;}
   function buildA320Model(){return buildJet('a320',{fus:[{z:15.5,r:.1},{z:14.2,r:.8},{z:12.3,r:1.35},{z:8,r:1.55},{z:-6,r:1.55},{z:-11,r:1.15,yo:.35},{z:-14.5,r:.45,yo:.9},{z:-15.6,r:.12,yo:1.1}].map(p=>({w:1,h:1,yo:0,flat:.13,...p})),wing:[{s:1.5,c:5.2,t:.13,zLE:2.6,y:-.9},{s:5.5,c:3.6,t:.11,zLE:.6,y:-.6},{s:14.7,c:1.3,t:.09,zLE:-4,y:-.05}],fin:[{s:1.5,c:4.6,t:.14,zLE:-9.6},{s:4.5,c:3.2,t:.12,zLE:-12},{s:7.5,c:1.9,t:.1,zLE:-14.3}],htail:[{s:.3,c:3,t:.12,zLE:-11.8,y:.9},{s:5.6,c:1.4,t:.1,zLE:-14.2,y:1.3}],engines:[{x:4.8,y:-1.7,z:1.6,r:.95,len:4.2},{x:-4.8,y:-1.7,z:1.6,r:.95,len:4.2}],ws:[1.3,.8,.75,13],gear:[[0,12.3],[-2.6,-.8],[2.6,-.8]],gh:1.9});}
-  function buildB777Model(){const g=buildJet('b777',{fus:[{z:30,r:.15},{z:27.5,r:1.4},{z:24,r:2.3},{z:18,r:2.55},{z:-14,r:2.55},{z:-23,r:1.95,yo:.5},{z:-28.5,r:.8,yo:1.3},{z:-30.5,r:.2,yo:1.7}].map(p=>({w:1,h:1.02,yo:0,flat:.12,...p})),wing:[{s:2.6,c:9.5,t:.13,zLE:4.5,y:-1.5},{s:13,c:5.5,t:.11,zLE:-3,y:-.6},{s:26.5,c:1.6,t:.08,zLE:-13,y:1.4}],fin:[{s:2.6,c:8.5,t:.14,zLE:-21},{s:7,c:5.5,t:.12,zLE:-24.5},{s:11,c:2.6,t:.1,zLE:-28}],htail:[{s:.3,c:5,t:.12,zLE:-24,y:1.9},{s:9,c:2.3,t:.1,zLE:-29,y:2.6}],engines:[{x:8.8,y:-2.9,z:1.5,r:1.75,len:7.5},{x:-8.8,y:-2.9,z:1.5,r:1.75,len:7.5}],ws:[1.7,1,1.4,27.3],gear:[[0,25.5],[-3.4,-3],[3.4,-3],[-3.4,-5],[3.4,-5],[-3.4,-7],[3.4,-7]],gh:3.6});return g;}
+  function buildB777Model(){const g=buildJet('b777',{fus:[{z:30,r:.15},{z:27.5,r:1.4},{z:24,r:2.3},{z:18,r:2.55},{z:-14,r:2.55},{z:-23,r:1.95,yo:.5},{z:-28.5,r:.8,yo:1.3},{z:-30.5,r:.2,yo:1.7}].map(p=>({w:1,h:1.02,yo:0,flat:.12,...p})),wing:[{s:2.6,c:9.5,t:.13,zLE:4.5,y:-1.5},{s:13,c:5.5,t:.11,zLE:-3,y:-.6},{s:26.5,c:1.6,t:.08,zLE:-13,y:1.4}],fin:[{s:2.6,c:8.5,t:.14,zLE:-21},{s:7,c:5.5,t:.12,zLE:-24.5},{s:11,c:2.6,t:.1,zLE:-28}],htail:[{s:.3,c:5,t:.12,zLE:-24,y:1.9},{s:9,c:2.3,t:.1,zLE:-29,y:2.6}],engines:[{x:8.9,y:-3.15,z:1.8,r:2.05,len:7.8},{x:-8.9,y:-3.15,z:1.8,r:2.05,len:7.8}],ws:[1.7,1,1.4,27.3],gear:[[0,25.5],[-3.4,-3],[3.4,-3],[-3.4,-5],[3.4,-5],[-3.4,-7],[3.4,-7]],gh:3.6});return g;}
   function buildConcordeModel(){const g=buildJet('concorde',{fus:[{z:25.5,r:.04},{z:23,r:.42},{z:20,r:.9},{z:16,r:1.2},{z:-12,r:1.2},{z:-19,r:.95,yo:.15},{z:-23.5,r:.45,yo:.4},{z:-25,r:.1,yo:.5}].map(p=>({w:1,h:1.05,yo:0,flat:.1,...p})),wing:[{s:1.2,c:22,t:.035,zLE:6,y:-.75},{s:4,c:16,t:.035,zLE:1,y:-.75},{s:7.5,c:8,t:.04,zLE:-6,y:-.65},{s:10.5,c:2.5,t:.05,zLE:-11.5,y:-.55}],fin:[{s:1,c:8.5,t:.08,zLE:-15},{s:4.5,c:5,t:.07,zLE:-19.5},{s:7.2,c:2.2,t:.06,zLE:-22.5}],htail:[{s:.1,c:.4,t:.05,zLE:-20,y:0},{s:.3,c:.3,t:.05,zLE:-20.1,y:0}],engines:[{x:2.5,y:-1.55,z:-9,r:.6,len:9},{x:-2.5,y:-1.55,z:-9,r:.6,len:9},{x:4.0,y:-1.55,z:-9,r:.6,len:9},{x:-4.0,y:-1.55,z:-9,r:.6,len:9}],ws:[1,.5,.55,18.5],gear:[[0,14],[-2.6,-7],[2.6,-7]],gh:3.0});
     cyl(g,'concorde_pitot',0.015,0.04,1.6,MAT.gear,[0,0,26.2],[Math.PI/2,0,0]);
     sph(g,'concorde_visor',0.88,0.52,1.8,MAT.white,[0,0.42,20.3]);
@@ -12821,6 +12834,7 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
   function setActiveAircraft(modelId){
     if(modelId!=='737'&&window._ensureModel){try{window._ensureModel(modelId);}catch(e){console.warn('lazy setActive',e);}}
     activeModelId=modelId;window._activeModelId=modelId;window._ckEye=CK_EYE[modelId]||null;
+    try{window._cockpitTheme&&window._cockpitTheme(modelId);}catch(e){}
     AVIATION_ALERT_AUDIO.refresh();
     try{exteriorRoot.setEnabled(false);}catch(e){}
     try{interiorRoot.setEnabled(false);}catch(e){}
