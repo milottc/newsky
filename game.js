@@ -15588,6 +15588,75 @@ void main(){
   try{put('updateChips',updateChips);}catch(e){}
   try{window._setWxPreset=k=>{if(WEATHER[k]){currentWeather=WEATHER[k];const sel=document.getElementById('wxSel');if(sel)sel.value=k;applyEnvironment();applyWeatherVisuals();updateChips();}};}catch(e){}
 })();
+
+/* ===== Real 3D aircraft models (glTF) =====
+   Replace the code-built airframe of selected types with real models (FlightGear/Flightradar24 aircraft,
+   GPLv2, see assets/models/README.md). The code-built gear (animated) and lights stay; everything else of
+   the code-built airframe is hidden once the model is in. If loading fails, the code-built plane remains. */
+(function(){
+  const REAL={'737':'assets/models/b738.glb',b777:'assets/models/b773.glb'};
+  const state={};let loaderP=null;
+  const loadLoaders=()=>loaderP||(loaderP=new Promise((res,rej)=>{
+    if(BABYLON.SceneLoader&&BABYLON.SceneLoader.IsPluginForExtensionAvailable&&BABYLON.SceneLoader.IsPluginForExtensionAvailable('.glb')){res();return;}
+    const v=(BABYLON.Engine&&BABYLON.Engine.Version)||'7.31.0';
+    const urls=['https://cdn.jsdelivr.net/npm/babylonjs-loaders@'+v+'/babylonjs.loaders.min.js','https://unpkg.com/babylonjs-loaders@'+v+'/babylonjs.loaders.min.js'];
+    const tryN=i=>{if(i>=urls.length){rej(new Error('glTF loader unavailable'));return;}
+      const sc=document.createElement('script');sc.src=urls[i];sc.onload=()=>res();sc.onerror=()=>tryN(i+1);document.head.appendChild(sc);};
+    tryN(0);}));
+  const rootFor=id=>id==='737'?exteriorRoot:(window._ensureModel?window._ensureModel(id):null);
+  // the longest-in-z mesh is the fuselage; use it to align the real model to the code-built one
+  const fuselageOf=(meshes)=>{let best=null,bz=0;for(const m of meshes){if(!m.getTotalVertices||!m.getTotalVertices())continue;
+    const e=m.getBoundingInfo().boundingBox.extendSizeWorld;if(e.z>bz&&e.x<e.z*.3){bz=e.z;best=m;}}return best;};
+  async function load(id){
+    const st=state[id]={loading:true};
+    try{
+      await loadLoaders();
+      const root=rootFor(id);if(!root)throw new Error('no root for '+id);
+      const res=await BABYLON.SceneLoader.ImportMeshAsync('',REAL[id].replace(/[^/]+$/,''),REAL[id].split('/').pop(),scene);
+      const glbRoot=res.meshes[0];
+      // measure both airframes in the root's local frame (temporarily put root at identity)
+      const saved={p:root.position.clone(),r:root.rotation.clone(),q:root.rotationQuaternion?root.rotationQuaternion.clone():null,s:root.scaling.clone(),par:root.parent};
+      root.parent=null;root.position.setAll(0);root.rotation.setAll(0);if(root.rotationQuaternion)root.rotationQuaternion=BABYLON.Quaternion.Identity();root.scaling.setAll(1);
+      root.computeWorldMatrix(true);root.getChildMeshes().forEach(m=>m.computeWorldMatrix(true));
+      const procF=fuselageOf(root.getChildMeshes());
+      res.meshes.forEach(m=>m.computeWorldMatrix(true));
+      const glbF=fuselageOf(res.meshes);
+      if(!procF||!glbF)throw new Error('fuselage not found');
+      const pb=procF.getBoundingInfo().boundingBox,gb=glbF.getBoundingInfo().boundingBox;
+      const k=(pb.extendSizeWorld.z/gb.extendSizeWorld.z);
+      const pc=pb.centerWorld,gc=gb.centerWorld;
+      const holder=new BABYLON.TransformNode('realAC_'+id,scene);
+      glbRoot.parent=holder;
+      holder.rotation.y=Math.PI;                       // model nose points to -z; the sim's nose is +z
+      holder.scaling.setAll(k);
+      holder.position.set(pc.x+gc.x*k,pc.y-gc.y*k,pc.z+gc.z*k);
+      holder.parent=root;
+      // restore root transform
+      root.parent=saved.par;root.position.copyFrom(saved.p);root.rotation.copyFrom(saved.r);if(saved.q)root.rotationQuaternion=saved.q;root.scaling.copyFrom(saved.s);
+      // material polish: the converted models come in fully matte
+      const seen=new Set();
+      for(const m of res.meshes){m.isPickable=false;m.receiveShadows=true;const mt=m.material;if(!mt||seen.has(mt))continue;seen.add(mt);
+        if(mt instanceof BABYLON.PBRMaterial){const glass=mt.alpha<1||/glass|transparent|window/i.test(mt.name);
+          mt.roughness=glass?.05:.36;mt.metallic=glass?0:.06;mt.environmentIntensity=.9;
+          if(!glass){mt.clearCoat.isEnabled=true;mt.clearCoat.intensity=.55;mt.clearCoat.roughness=.12;}}}
+      // hide the code-built airframe, keep animated gear and light halos / emitters
+      const gearNodes=id==='737'?Object.values(gearPivots):[root.metadata&&root.metadata.gearGroup].filter(Boolean);
+      const keep=m=>gearNodes.some(g=>m.isDescendantOf(g))||/halo|Halo|^llg|^llcone|exhGlow|fireEm|smokeEm|TaxiL|_beacon|^nv|^st[LRT]|^bc/i.test(m.name);
+      const hidden=[];
+      for(const m of root.getChildMeshes()){if(m.isDescendantOf(holder)||keep(m))continue;if(m.isVisible){m.isVisible=false;hidden.push(m);}}
+      st.holder=holder;st.hidden=hidden;st.loading=false;st.ok=true;
+      try{window._refreshShadows&&window._refreshShadows();}catch(e){}
+      console.info('real model loaded',id,'scale',k.toFixed(3),'hid',hidden.length);
+    }catch(e){console.warn('real model failed, keeping code-built',id,e);st.loading=false;st.failed=true;}
+  }
+  window._realModels=state;
+  // load for the active type; never show the outside model from the cockpit seat
+  scene.onBeforeRenderObservable.add(()=>{
+    const id=window._activeModelId||'737';
+    if(REAL[id]&&!state[id])load(id);
+    for(const k in state){const h=state[k].holder;if(h){const on=camMode!==1;if(h.isEnabled()!==on)h.setEnabled(on);}}
+  });
+})();
 } /* end main */
 
 (function(){const prevTD=window._onTouchdown;window._onTouchdown=(sink,hs,noGear,water)=>{try{prevTD&&prevTD(sink,hs,noGear,water);}catch(e){}try{if(!noGear&&!water)window._ambThump&&window._ambThump(Math.min(1,sink/8));}catch(e){}};})();
