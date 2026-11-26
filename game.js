@@ -741,7 +741,13 @@ function sampleSurface(x,z){
 status('engine');
 const canvas=document.getElementById('renderCanvas');
 let engine=null;
-const isTouchDev=('ontouchstart' in window||navigator.maxTouchPoints>0)&&Math.min(screen.width,screen.height)<900;
+/* Phones AND tablets (large Android tablets / iPads report screens wider than 900 px) take the lighter mobile path:
+   no cascaded shadows or SSAO, smaller terrain/texture budgets, LOW graphics by default. */
+const isTouchDev=('ontouchstart' in window||navigator.maxTouchPoints>0)&&(
+  Math.min(screen.width,screen.height)<900||
+  /Android|iPad|iPhone|iPod|Mobile|Tablet|Silk|Kindle|CrOS/i.test(navigator.userAgent)||
+  (navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)||
+  (window.matchMedia&&matchMedia('(pointer: coarse)').matches&&!matchMedia('(pointer: fine)').matches));
 if(isTouchDev){CFG.texSize=1024;CFG.terrainGrid=129;}
 const engOpts=[{stencil:true,antialias:true,powerPreference:'high-performance',failIfMajorPerformanceCaveat:false},{stencil:true,antialias:false,failIfMajorPerformanceCaveat:false},{stencil:false,antialias:false,failIfMajorPerformanceCaveat:false,preserveDrawingBuffer:false}];
 for(const o of engOpts){try{engine=new BABYLON.Engine(canvas,o.antialias,o,true);if(engine)break;}catch(e){engine=null;}}
@@ -985,7 +991,7 @@ M.intake.albedoColor=new BABYLON.Color3(.46,.47,.50);
 M.intake.metallic=.92;M.intake.roughness=.12;
 _forceOpaquePBR(M.intake);
 M.cockpitBody=new BABYLON.PBRMaterial('cockpitBodyM',scene);
-M.cockpitBody.albedoColor=new BABYLON.Color3(.38,.41,.45);M.cockpitBody.emissiveColor=new BABYLON.Color3(.018,.020,.024);
+M.cockpitBody.albedoColor=new BABYLON.Color3(.60,.63,.66);M.cockpitBody.emissiveColor=new BABYLON.Color3(.018,.020,.024);
 M.cockpitBody.metallic=.08;M.cockpitBody.roughness=.78;
 _forceOpaquePBR(M.cockpitBody);
 M.cockpitPanel=new BABYLON.PBRMaterial('cockpitPanelM',scene);
@@ -998,7 +1004,7 @@ M.bezel.albedoColor=new BABYLON.Color3(.065,.072,.082);
 M.bezel.metallic=.12;M.bezel.roughness=.82;
 _forceOpaquePBR(M.bezel);
 M.seat=new BABYLON.PBRMaterial('seatM',scene);
-M.seat.albedoColor=new BABYLON.Color3(.64,.61,.55);
+M.seat.albedoColor=new BABYLON.Color3(.86,.88,.90); // pale sheepskin seat covers
 M.seat.metallic=.02;M.seat.roughness=.95;
 _forceOpaquePBR(M.seat);
 M.fireHandle=new BABYLON.PBRMaterial('fireHandleM',scene);
@@ -1862,8 +1868,8 @@ glassPane('gsr',1.40,.72,1.96,.54,13.16,0,4*Math.PI/7,M.sideGlass);
 /* Cockpit windows: rounded, padded window frames, tinted laminated-glass edges and wipers */
 (function(){
   // Glass keeps its original clear see-through material (a textured edge tint made it render opaque on devices)
-  // Rounded-rectangle frame tube in a pane's local plane
-  const frameMat=M.cockpitPanel;
+  // Rounded-rectangle frame tube in a pane's local plane (window frames are light Boeing grey like the liner)
+  const frameMat=M.cockpitBody;
   const rr=(w,h,r)=>{const p=[],hw=w/2,hh=h/2,c=[[hw-r,hh-r,0],[-hw+r,hh-r,Math.PI/2],[-hw+r,-hh+r,Math.PI],[hw-r,-hh+r,1.5*Math.PI]];
     for(const [cx,cy,a0] of c)for(let i=0;i<=6;i++){const a=a0+i/6*Math.PI/2;p.push(new BABYLON.Vector3(cx+Math.cos(a)*r,cy+Math.sin(a)*r,0));}
     p.push(p[0].clone());return p;};
@@ -3250,7 +3256,7 @@ for(const s of [-1,1]){
     const W=512,H=512,tx=new BABYLON.DynamicTexture('hpT'+i,{width:W,height:H},scene,true),c=tx.getContext();
     // Boeing cockpit liner: warm taupe upper trim + Boeing slate-grey window pillars
     const bg=c.createLinearGradient(0,0,0,H);
-    bg.addColorStop(0,'#5d5a53');bg.addColorStop(.14,'#47505c');bg.addColorStop(.82,'#3c4652');bg.addColorStop(1,'#293039');
+    bg.addColorStop(0,'#b9bfc4');bg.addColorStop(.14,'#a3abb2');bg.addColorStop(.82,'#959da5');bg.addColorStop(1,'#757d85'); // light Boeing grey liner
     c.fillStyle=bg;c.fillRect(0,0,W,H);
     // Subtle padded ribs & rivet seams
     c.fillStyle='rgba(0,0,0,.18)';for(let k=0;k<18;k++)c.fillRect(0,k*30+8,W,2);
@@ -13483,7 +13489,6 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
       const NAMES=['LOW','MEDIUM','HIGH','ULTRA'];
       let q=-1;
       const setQ=(n,quiet)=>{n=Math.max(0,Math.min(3,n));if(n===q)return;q=n;window._gq=n;
-        try{localStorage.setItem('fs_gfx',String(n));}catch(e){}
         const dpr=window.devicePixelRatio||1;
         const hiScale=1/Math.min(dpr,n>=3?1.5:1.15);
         engine.setHardwareScalingLevel(n===0?1.25:(n===1?1.0:hiScale));
@@ -13506,17 +13511,23 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
         }catch(e){}
         const gfxTag=document.getElementById('tmGfxTag');if(gfxTag)gfxTag.textContent=NAMES[n]+' · O';
         if(!quiet)showMsg('GRAPHICS: '+NAMES[n],1500);};
-      window.setGraphicsQuality=n=>{auto=false;setQ(n);};
-      window.cycleGraphicsQuality=()=>{auto=false;setQ((q+1)%4);};
-      window.addEventListener('keydown',e=>{if(e.code==='KeyO'&&!/INPUT|SELECT|TEXTAREA/.test((e.target||{}).tagName||'')){auto=false;setQ((q+1)%4);}});
-      let saved=null;try{saved=localStorage.getItem('fs_gfx');}catch(e){}
+      // only a quality the pilot picks by hand is remembered; otherwise auto-adjust stays on every session
+      const manual=n=>{auto=false;setQ(n);try{localStorage.setItem('fs_gfx',String(q));localStorage.setItem('fs_gfx_manual','1');}catch(e){}};
+      window.setGraphicsQuality=n=>manual(n);
+      window.cycleGraphicsQuality=()=>manual((q+1)%4);
+      window.addEventListener('keydown',e=>{if(e.code==='KeyO'&&!/INPUT|SELECT|TEXTAREA/.test((e.target||{}).tagName||''))manual((q+1)%4);});
+      let saved=null;try{if(localStorage.getItem('fs_gfx_manual')==='1')saved=localStorage.getItem('fs_gfx');}catch(e){}
       let auto=saved===null;
       setQ(saved!==null?+saved:(isTouchDev?0:1),true);
       let acc=0,fr=0,low=0,high=0;
       scene.onAfterRenderObservable.add(()=>{acc+=engine.getDeltaTime();fr++;if(acc<1600)return;
         const fps=fr*1000/acc;acc=0;fr=0;if(!auto)return;
+        // below LOW quality, keep trading resolution for frame rate (down to ~55% of screen resolution)
+        const lvl=engine.getHardwareScalingLevel();
+        if(fps<30&&q===0){if(lvl<1.8)engine.setHardwareScalingLevel(Math.min(1.8,lvl+.15));}
+        else if(fps>50&&q===0&&lvl>1.25){engine.setHardwareScalingLevel(Math.max(1.25,lvl-.1));}
         if(fps<42){low++;high=0;if(low>=2&&q>0){setQ(q-1,true);low=0;}}
-        else if(fps>57){high++;low=0;if(high>=6&&q<2){setQ(q+1,true);high=0;}}else{low=0;high=0;}});
+        else if(fps>57){high++;low=0;if(high>=6&&q<(isTouchDev?1:2)){setQ(q+1,true);high=0;}}else{low=0;high=0;}});
     }catch(e){console.warn('quality',e);}
     try{
       const S=256,dt=new BABYLON.DynamicTexture('terrDetail',{width:S,height:S},scene,true),c=dt.getContext(),id=c.createImageData(S,S);
