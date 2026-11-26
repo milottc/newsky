@@ -532,6 +532,12 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // Pilot closed the sim / left the world: drop them from every radar immediately
+    if (data.type === 'leave') {
+      removePlayer(player);
+      return;
+    }
+
     // Ignore pilot auto-join if this socket is an active ATC controller
     if (ctrl.isATC) return;
 
@@ -541,8 +547,13 @@ wss.on('connection', (ws) => {
     }
 
     if (data.type === 'state') {
+      const wasCrashed = player.crashed;
       applyTelemetry(player, data);
       player.updatedAt = Date.now();
+      player.lastStateAt = player.updatedAt;
+      if (!wasCrashed && player.crashed) {
+        broadcastGlobal({ type: 'player:crashed', id: player.id, callsign: player.callsign, lat: player.lat, lon: player.lon, ts: Date.now() }, player.id);
+      }
       broadcastGlobal({
         type: 'player:state',
         player: serializePlayer(player)
@@ -634,6 +645,11 @@ const heartbeatInterval = setInterval(() => {
   const now = Date.now();
   for (const player of players.values()) {
     if (!player.ws || player.ws.readyState !== WebSocket.OPEN) {
+      removePlayer(player);
+      continue;
+    }
+    // Socket alive but no telemetry (tab closed/frozen, sim stopped): radar contact lost
+    if (now - (player.lastStateAt || player.updatedAt) > 25000) {
       removePlayer(player);
       continue;
     }
