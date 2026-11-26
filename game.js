@@ -15589,6 +15589,16 @@ void main(){
   try{window._setWxPreset=k=>{if(WEATHER[k]){currentWeather=WEATHER[k];const sel=document.getElementById('wxSel');if(sel)sel.value=k;applyEnvironment();applyWeatherVisuals();updateChips();}};}catch(e){}
 })();
 
+/* Home screen Options: detailed 3D models / flight deck on or off (remembered per device). */
+const SKY_PREFS=(function(){
+  const get=(k,d)=>{try{const v=localStorage.getItem(k);return v===null?d:v==='1';}catch(e){return d;}};
+  const P={realModels:get('sky_realModels',true),realCockpit:get('sky_realCockpit',true)};
+  const bind=(id,key,ls)=>{const el=document.getElementById(id);if(!el)return;el.value=P[key]?'1':'0';
+    el.addEventListener('change',()=>{P[key]=el.value==='1';try{localStorage.setItem(ls,el.value);}catch(e){}});};
+  bind('realModelSel','realModels','sky_realModels');bind('realCockpitSel','realCockpit','sky_realCockpit');
+  window.SKY_PREFS=P;return P;
+})();
+
 /* ===== Real 3D aircraft models (glTF) =====
    Replace the code-built airframe of selected types with real models (FlightGear/Flightradar24 aircraft,
    GPLv2, see assets/models/README.md). The code-built gear (animated) and lights stay; everything else of
@@ -15644,17 +15654,37 @@ void main(){
       const keep=m=>gearNodes.some(g=>m.isDescendantOf(g))||/halo|Halo|^llg|^llcone|exhGlow|fireEm|smokeEm|TaxiL|_beacon|^nv|^st[LRT]|^bc/i.test(m.name);
       const hidden=[];
       for(const m of root.getChildMeshes()){if(m.isDescendantOf(holder)||keep(m))continue;if(m.isVisible){m.isVisible=false;hidden.push(m);}}
-      st.holder=holder;st.hidden=hidden;st.loading=false;st.ok=true;
+      st.holder=holder;st.hidden=hidden;st.loading=false;st.ok=true;st.meshes=res.meshes;st.fus=glbF;st.liv=-1;st.on=true;
       try{window._refreshShadows&&window._refreshShadows();}catch(e){}
       console.info('real model loaded',id,'scale',k.toFixed(3),'hid',hidden.length);
     }catch(e){console.warn('real model failed, keeping code-built',id,e);st.loading=false;st.failed=true;}
   }
   window._realModels=state;
+  // Livery on the real model: tail/rudder in the livery tail colour, 737 engine cowls in the nacelle colour,
+  // fuselage tinted with the body colour (the models are plain white, so a tint reads as paint).
+  const c3=a=>new BABYLON.Color3(a[0],a[1],a[2]);
+  function paint(st){
+    const L=LIVS[curLiv];if(!L)return;st.liv=curLiv;
+    const mk=(n,col)=>{const m=st[n]||(st[n]=new BABYLON.PBRMaterial('realLiv_'+n,scene));m.albedoColor=c3(col);m.metallic=.05;m.roughness=.3;
+      m.clearCoat.isEnabled=true;m.clearCoat.intensity=.7;m.clearCoat.roughness=.08;return m;};
+    const tail=mk('tailMat',L.t||L.a),eng=mk('engMat',L.nac||L.e||L.b);
+    for(const m of st.meshes){
+      if(/^(vstab|vstable|rudder|tail)/i.test(m.name))m.material=tail;
+      else if(/^(engnose|No2engfancase|No2reverser|lreverserib)/.test(m.name))m.material=eng;
+    }
+    const fm=st.fus&&st.fus.material;
+    if(fm){if(!fm._origAlb)fm._origAlb=fm.albedoColor.clone();fm.albedoColor=fm._origAlb.multiply(c3(L.b));}
+  }
+  // Classic mode (home screen Options) puts the code-built airframe back
+  function setOn(st,on){st.on=on;for(const m of st.hidden)m.isVisible=!on;}
   // load for the active type; never show the outside model from the cockpit seat
   scene.onBeforeRenderObservable.add(()=>{
-    const id=window._activeModelId||'737';
-    if(REAL[id]&&!state[id])load(id);
-    for(const k in state){const h=state[k].holder;if(h){const on=camMode!==1;if(h.isEnabled()!==on)h.setEnabled(on);}}
+    const id=window._activeModelId||'737',want=SKY_PREFS.realModels;
+    if(want&&REAL[id]&&!state[id])load(id);
+    for(const k in state){const st=state[k],h=st.holder;if(!h)continue;
+      if(st.on!==want)setOn(st,want);
+      const on=want&&camMode!==1;if(h.isEnabled()!==on)h.setEnabled(on);
+      if(want&&st.liv!==curLiv)try{paint(st);}catch(e){}}
   });
 })();
 
@@ -15691,15 +15721,20 @@ void main(){
       for(const m of scr.concat(lower?[lower]:[])){const uv=m.getVerticesData(BABYLON.VertexBuffer.UVKind);if(uv){for(let i=1;i<uv.length;i+=2)uv[i]=1-uv[i];m.setVerticesData(BABYLON.VertexBuffer.UVKind,uv);}}
       scr.forEach((m,i)=>{const k=keys[i];if(k&&displays[k])m.material=screenMat(displays[k],k);});
       if(lower&&displays.eicas)lower.material=screenMat(displays.eicas,'lower');
-      for(const m of r.meshes){m.isPickable=false;const mt=m.material;
-        if(mt instanceof BABYLON.PBRMaterial){mt.roughness=.62;mt.environmentIntensity=.75;mt.directIntensity=1.1;}}
+      // FlightGear's shell and fittings are untextured white: tint them Boeing grey, dim textured panels a touch
+      const done=new Set(),GREY=new BABYLON.Color3(.48,.52,.56),PANEL=new BABYLON.Color3(.66,.69,.73);
+      for(const m of r.meshes){m.isPickable=false;const mt=m.material;if(!mt||done.has(mt)||/^realScr_/.test(mt.name))continue;done.add(mt);
+        if(mt instanceof BABYLON.PBRMaterial){mt.roughness=.62;mt.environmentIntensity=.45;mt.directIntensity=.6;
+          mt.albedoColor=mt.albedoColor.multiply(mt.albedoTexture?PANEL:GREY);
+          // self-lit panel textures (e.g. the autopilot strip) ignore the tint: keep only a faint backlight
+          if(mt.emissiveTexture||(mt.emissiveColor&&mt.emissiveColor.r>0))mt.emissiveColor=mt.emissiveColor.scale(.25);}}
       holder.setEnabled(false);state='ready';
       console.info('real 737 cockpit loaded: screens',scr.length+(lower?1:0));
     }catch(e){console.warn('real cockpit failed, keeping code-built cockpit',e);state='failed';}
   }
   window._realCockpit=()=>({state,holder});
   scene.onBeforeRenderObservable.add(()=>{
-    const want=camMode===1&&(window._activeModelId||'737')==='737';
+    const want=SKY_PREFS.realCockpit&&camMode===1&&(window._activeModelId||'737')==='737';
     if(want&&state==='idle')load();
     const show=want&&state==='ready';
     if(holder&&holder.isEnabled()!==show)holder.setEnabled(show);
