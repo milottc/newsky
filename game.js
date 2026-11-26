@@ -9475,17 +9475,28 @@ const atc=(function(){
     .replace(/\b(\d+)00\b(?= feet)/g,(m,a)=>a.split('').map(d=>DIG[d]).join(' ')+' hundred')
     .replace(/\b\d{2,}\b/g,m=>m.split('').map(d=>DIG[d]).join(' '))
     .replace(/\b9\b/g,'niner');
+  const AS=()=>window.SKY_ATC||{voice:true,readback:true,static:true,auto:true,rate:1.08,chatter:2};
+  // soft radio hiss under each spoken transmission
+  let hiss=null;
+  const hissOn=()=>{if(!AS().static)return;try{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;if(!sqCtx)sqCtx=new AC();
+    if(hiss)return;const sr=sqCtx.sampleRate,b=sqCtx.createBuffer(1,sr,sr),dd=b.getChannelData(0);for(let i=0;i<sr;i++)dd[i]=Math.random()*2-1;
+    const src=sqCtx.createBufferSource();src.buffer=b;src.loop=true;const bp=sqCtx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=1800;bp.Q.value=.7;
+    const g=sqCtx.createGain();g.gain.value=.018*(typeof masterVol==='number'?masterVol/.6:1);src.connect(bp);bp.connect(g);g.connect(sqCtx.destination);src.start();hiss={src,g};}catch(e){}};
+  const hissOff=()=>{if(!hiss)return;try{hiss.src.stop();}catch(e){}hiss=null;};
+  const stamp=()=>{const d=new Date();return String(d.getUTCHours()).padStart(2,'0')+String(d.getUTCMinutes()).padStart(2,'0')+'Z ';};
   const say=(who,txt)=>{if(who!=='p')txt=naturalize(txt);const d=document.createElement('div');d.className=who==='p'?'p':'a';
     if(who==='o'){d.style.color='#93c5fd';d.style.fontWeight='500';}
-    d.textContent=(who==='p'?'▶ '+st.cs+': ':who==='o'?'◇ ':'◀ ')+txt;log.appendChild(d);
+    const ts=document.createElement('span');ts.textContent=stamp();ts.style.cssText='color:#4b6584;font-weight:500;font-size:.9em';d.appendChild(ts);
+    d.appendChild(document.createTextNode((who==='p'?'▶ '+st.cs+': ':who==='o'?'◇ ':'◀ ')+txt));log.appendChild(d);
     while(log.childNodes.length>160)log.removeChild(log.firstChild);
     log.scrollTop=log.scrollHeight;
-    if(st.voice&&window.speechSynthesis&&!(_sfxCur&&!_sfxCur.paused&&!_sfxCur.ended)){try{
+    const A=AS();const speakIt=who==='p'?A.readback:A.voice;
+    if(st.voice&&speakIt&&window.speechSynthesis&&!(_sfxCur&&!_sfxCur.paused&&!_sfxCur.ended)){try{
       if(who==='o'&&speechSynthesis.pending)return; // never let chatter pile up behind real clearances
       const u=new SpeechSynthesisUtterance(speakable(txt));
-      u.rate=who==='o'?1.18:who==='p'?1.12:1.08;u.pitch=who==='o'?.85+Math.random()*.4:who==='p'?.9:1;u.volume=who==='p'?.75:1;
+      const base=+A.rate||1.08;u.rate=who==='o'?base+.1:who==='p'?base+.04:base;u.pitch=who==='o'?.85+Math.random()*.4:who==='p'?.9:1;u.volume=who==='p'?.75:1;
       if(_voices.length)u.voice=who==='o'?_voices[(Math.random()*_voices.length)|0]:who==='p'?_voices[Math.min(1,_voices.length-1)]:_voices[0];
-      playSquelch();u.onend=()=>playSquelch();
+      if(A.static){u.onstart=()=>{playSquelch();hissOn();};u.onend=()=>{hissOff();playSquelch();};u.onerror=hissOff;}
       speechSynthesis.speak(u);}catch(e){}}
     try{highlightNext();}catch(e){}};
   const code=()=>(currentLocation.code||'UNKN');
@@ -9511,7 +9522,8 @@ const atc=(function(){
     atis:()=>{say('p','Request ATIS, '+code()+'.');setTimeout(()=>{say('a',code()+' ATIS on '+F().atis+': '+atisText());st.atis=atisL();},900);},
     ifr:()=>{say('p','Delivery, '+st.cs+', request IFR clearance, stand '+stand()+', information '+(st.atis||'Alpha')+'.');setTimeout(()=>{if(!plane.onGround){say('a','Unable, you are airborne.');return;}
       const nf=(!st.atis||st.atis!==atisL())?' Advise you have information '+NATO[atisL()]+'.':'';
-      say('a',st.cs+', '+code()+' Delivery, cleared to destination as filed, runway '+rwy()+', standard departure, climb and maintain 5000, departure frequency '+F().dep+', squawk '+st.sq+'.'+nf);
+      const dest=(typeof FP!=='undefined'&&FP.dest)?FP.dest:'';
+      say('a',st.cs+', '+code()+' Delivery, cleared to '+(dest?facility(dest)+' airport':'destination')+' as filed'+(dest&&FP.wps.length?', flight planned route':'')+', runway '+rwy()+', standard departure, climb and maintain 5000, expect flight level '+String(Math.round(((FP&&FP.cruiseAlt)||18000)/100)).padStart(3,'0')+' ten minutes after departure, departure frequency '+F().dep+', squawk '+st.sq+'.'+nf);
       readback('Cleared as filed, runway '+rwy()+', climb 5000, departure '+F().dep+', squawk '+st.sq+', '+st.cs+'.',2600);st.phase='cleared';},900);},
     push:()=>{say('p','Ground, '+st.cs+', stand '+stand()+', request pushback and start-up.');setTimeout(()=>{if(st.phase==='ramp'||st.phase==='cleared'){say('a',st.cs+', '+code()+' Ground '+F().gnd+', pushback approved, tail '+(Math.random()<.5?'north':'south')+', start-up at your discretion. Call ready to taxi.');readback('Pushback approved, start-up at our discretion, '+st.cs+'.',2200);st.phase='pushed';}else say('a','Negative, '+st.cs+', already moving or clearance required.');},900);},
     taxi:()=>{const arriving=st.arrived;say('p',arriving?'Ground, '+st.cs+', runway vacated, request taxi to the gate.':'Ground, '+st.cs+', ready to taxi.');
@@ -9609,7 +9621,7 @@ const atc=(function(){
       setTimeout(()=>say('a',st.cs+', '+((as&&as.atc)||code()+' Approach')+', radar contact lost. '+st.cs+', how do you read? ... All stations, emergency in progress, rescue services are being dispatched.'),2200);
       st.phase='ramp';lx.clearedFt=0;return;}
     if(!plane.crashed)lx.crashed=false;
-    if(!air){lx.clearedFt=0;lx.cruise=0;lx.fieldFt=altFt();return;}
+    if(!air){lx.clearedFt=0;lx.cruise=0;lx.fieldFt=altFt();lx.desc=0;lx.appr=0;return;}
     const ft=altFt(),g=agl();
     // Airspace handoff when the active region changes
     const as=regionNow();
@@ -9620,7 +9632,7 @@ const atc=(function(){
     }
     if(as)lx.as=as;
     // Departure: cleared 5000 on the ground, then step climbs to a cruise level
-    if(st.phase==='climb'||st.phase==='cruise'){
+    if(AS().auto&&(st.phase==='climb'||st.phase==='cruise')&&!lx.desc){
       // initial clearance is 5000 ft or ~4000 ft above a high-elevation field; if already high, start from present level
       const base=Math.max(5000,Math.ceil(((lx.fieldFt||0)+4000)/1000)*1000);
       if(!lx.cruise)lx.cruise=(28+((hash()%12)|0))*1000;
@@ -9637,7 +9649,21 @@ const atc=(function(){
         say('a',st.cs+', check altitude, you were cleared to '+fl(lx.clearedFt)+'. Say altitude.');}
     }
     // Background frequency chatter from regional AI traffic (only while no own clearance is being read)
-    if(g>1500&&!(window.speechSynthesis&&speechSynthesis.speaking)&&performance.now()-lx.lastChat>(45000+Math.random()*40000)){lx.lastChat=performance.now();chatter();}
+    const ch=+AS().chatter;
+    if(ch>0&&g>1500&&!(window.speechSynthesis&&speechSynthesis.speaking)&&performance.now()-lx.lastChat>([0,110000,55000,25000][ch]+Math.random()*[0,60000,30000,15000][ch])){lx.lastChat=performance.now();chatter();}
+    // Arrival: top of descent, descent clearance, handoff to the destination's approach with the expected runway
+    if(AS().auto&&typeof FP!=='undefined'&&FP.dest&&LOCS[FP.dest]){
+      const DL=LOCS[FP.dest],dw=llToWorld(DL.lat,DL.lon),dNm=Math.hypot(dw.x-plane.pos.x,dw.z-plane.pos.z)/1852;
+      const DR=RUNWAYS[FP.dest],drwy=DR&&DR.des?DR.des[0]:(DR?String(Math.round(DR.hdg/10)%36||36).padStart(2,'0'):'');
+      const tod=(ft-(DL.elev||0)*3.28)/1000*3+12;
+      if(!lx.desc&&dNm<tod&&ft>12000&&dNm>30){lx.desc=1;lx.clearedFt=10000;st.phase='cruise';
+        say('a',st.cs+', '+((as&&as.atc)||'Center')+', descend at pilot\'s discretion, maintain one zero thousand. Expect the ILS'+(drwy?' runway '+drwy:'')+' at '+facility(FP.dest)+'.');
+        readback('Pilot\'s discretion down to one zero thousand, expect the ILS'+(drwy?' '+drwy:'')+', '+st.cs+'.',2400);}
+      if(!lx.appr&&dNm<32&&dNm>4){lx.appr=1;
+        say('a',st.cs+', contact '+facility(FP.dest)+' Approach on '+radioFreq({id:FP.dest+'A'})+'.');readback(radioFreq({id:FP.dest+'A'})+', '+st.cs+'.',1800);
+        setTimeout(()=>{say('a',st.cs+', '+facility(FP.dest)+' Approach, radar contact, descend and maintain 3000, expect vectors ILS'+(drwy?' runway '+drwy:'')+'. '+facility(FP.dest)+' information '+NATO[atisL()]+' is current.');
+          readback('Down to 3000, vectors ILS'+(drwy?' '+drwy:'')+', we have '+NATO[atisL()]+', '+st.cs+'.',2600);st.phase='appr';lx.clearedFt=0;},5200);}
+    }else{lx.desc=lx.desc&&air?lx.desc:0;}
   },1000);
   const setControllers=(list)=>{
     st.controllers=Array.isArray(list)?list:[];
@@ -10262,11 +10288,17 @@ const AMB=(function(){
     master.gain.value=masterVol;
   };
   return {update,setVol:v=>{masterVol=v;try{if(master)master.gain.value=v;}catch(e){}},ensure};
+
 })();
 window.addEventListener('keydown',e=>{if(e.code==='KeyY'&&!/INPUT|SELECT|TEXTAREA/.test((e.target||{}).tagName||'')){
   if(masterVol>0){_prevVol=masterVol;AMB.setVol(0);AVIATION_ALERT_AUDIO.setVolume(0);MASTER_CHIME.syncVolume();showMsg('SOUND MUTED',1200);}
   else{AMB.setVol(_prevVol||.6);AVIATION_ALERT_AUDIO.setVolume(masterVol);MASTER_CHIME.syncVolume();showMsg('SOUND ON',1200);}
-}});
+}
+});
+/* Settings page master volume (0..1) */
+window.setMasterVolume=v=>{v=Math.max(0,Math.min(1,+v||0));_prevVol=v||_prevVol;try{AMB.setVol(v);}catch(e){masterVol=v;}
+  try{AVIATION_ALERT_AUDIO.setVolume(v);}catch(e){}try{MASTER_CHIME.syncVolume();}catch(e){}};
+try{const sv=localStorage.getItem('sky_vol');if(sv!==null)window.setMasterVolume(+sv);}catch(e){}
 scene.registerBeforeRender(()=>{try{AMB.update(Math.min(.05,engine.getDeltaTime()/1000));}catch(e){}});
 const unlockAudio=()=>{
   audioUnlocked=true;
@@ -13533,6 +13565,7 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
       // only a quality the pilot picks by hand is remembered; otherwise auto-adjust stays on every session
       const manual=n=>{auto=false;setQ(n);try{localStorage.setItem('fs_gfx',String(q));localStorage.setItem('fs_gfx_manual','1');}catch(e){}};
       window.setGraphicsQuality=n=>manual(n);
+      window.setGraphicsAuto=()=>{auto=true;try{localStorage.removeItem('fs_gfx_manual');localStorage.removeItem('fs_gfx');}catch(e){}};
       window.cycleGraphicsQuality=()=>manual((q+1)%4);
       window.addEventListener('keydown',e=>{if(e.code==='KeyO'&&!/INPUT|SELECT|TEXTAREA/.test((e.target||{}).tagName||''))manual((q+1)%4);});
       let saved=null;try{if(localStorage.getItem('fs_gfx_manual')==='1')saved=localStorage.getItem('fs_gfx');}catch(e){}
