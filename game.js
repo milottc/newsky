@@ -1830,16 +1830,7 @@ glassPane('gsr',1.40,.72,1.96,.54,13.16,0,4*Math.PI/7,M.sideGlass);
 
 /* Cockpit windows: rounded, padded window frames, tinted laminated-glass edges and wipers */
 (function(){
-  // Glass gets a soft darker, faintly green edge (laminate + heating film) and stays crystal clear in the middle
-  const gt=new BABYLON.DynamicTexture('wsEdgeTex',{width:256,height:256},scene,true);
-  const g=gt.getContext();g.clearRect(0,0,256,256);
-  const id=g.createImageData(256,256);
-  for(let y=0;y<256;y++)for(let x=0;x<256;x++){
-    const u=Math.abs(x/127.5-1),v=Math.abs(y/127.5-1),e=Math.pow(Math.max(u,v),7),k=(y*256+x)*4;
-    id.data[k]=18;id.data[k+1]=48+e*30;id.data[k+2]=46;id.data[k+3]=Math.round((.05+e*.32)*255);}
-  g.putImageData(id,0,0);gt.update(false);gt.hasAlpha=true;
-  for(const mat of [M.windshieldGlass,M.sideGlass]){
-    mat.albedoTexture=gt;mat.useAlphaFromAlbedoTexture=true;mat.alpha=1;mat.albedoColor=new BABYLON.Color3(1,1,1);}
+  // Glass keeps its original clear see-through material (a textured edge tint made it render opaque on devices)
   // Rounded-rectangle frame tube in a pane's local plane
   const frameMat=M.cockpitPanel;
   const rr=(w,h,r)=>{const p=[],hw=w/2,hh=h/2,c=[[hw-r,hh-r,0],[-hw+r,hh-r,Math.PI/2],[-hw+r,-hh+r,Math.PI],[hw-r,-hh+r,1.5*Math.PI]];
