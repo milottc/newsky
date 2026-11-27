@@ -752,7 +752,7 @@ if(isTouchDev){CFG.texSize=1024;CFG.terrainGrid=129;}
 const engOpts=[{stencil:true,antialias:true,powerPreference:'high-performance',failIfMajorPerformanceCaveat:false},{stencil:true,antialias:false,failIfMajorPerformanceCaveat:false},{stencil:false,antialias:false,failIfMajorPerformanceCaveat:false,preserveDrawingBuffer:false}];
 for(const o of engOpts){try{engine=new BABYLON.Engine(canvas,o.antialias,o,true);if(engine)break;}catch(e){engine=null;}}
 if(!engine){fatal('WebGL could not start. Fixes: enable hardware acceleration in your browser settings (Chrome: Settings > System), update your browser/GPU drivers, close other heavy tabs, or try another browser (Chrome/Edge/Safari). Test at get.webgl.org');return;}
-engine.setHardwareScalingLevel(isTouchDev?1.15:1.0);
+engine.setHardwareScalingLevel(1.0);
 const scene=new BABYLON.Scene(engine);
 scene.clearColor=new BABYLON.Color4(.55,.72,.92,1);
 scene.ambientColor=new BABYLON.Color3(.4,.46,.55);
@@ -9407,7 +9407,9 @@ let landingOn=true;const llights=[];
   }
   const setLL=on=>{landingOn=on;llights.forEach(l=>{l.setEnabled(on);l._glare.setEnabled(on);l._cone.setEnabled(on&&nightMode!==false);l._coneInner.setEnabled(on&&nightMode!==false);});};
   scene.materials.forEach(m=>m.maxSimultaneousLights=4);scene.onNewMaterialAddedObservable.add(m=>m.maxSimultaneousLights=4);
-  scene.textures.forEach(t=>{try{t.anisotropicFilteringLevel=4;}catch(e){}});scene.onNewTextureAddedObservable.add(t=>{try{t.anisotropicFilteringLevel=4;}catch(e){}});
+  // sharper textures at grazing angles: at least 8x anisotropic everywhere (never lower a texture that asked for more), 16x for the ground
+  const _aniso=t=>{try{if(!t)return;const want=(t===terrainTex||/terrain/i.test(t.name||''))?16:8;if((t.anisotropicFilteringLevel||0)<want)t.anisotropicFilteringLevel=want;}catch(e){}};
+  scene.textures.forEach(_aniso);scene.onNewTextureAddedObservable.add(_aniso);
   window.addEventListener('keydown',e=>{if(e.code==='KeyL'&&!e.shiftKey&&!/INPUT|SELECT/.test((e.target||{}).tagName||'')){setLL(!landingOn);showMsg('LANDING LIGHTS '+(landingOn?'ON':'OFF'));}});
   scene.registerBeforeRender(()=>{const agl=plane.pos.y-sampleSurface(plane.pos.x,plane.pos.z);const night=(typeof nightMode!=='undefined')?nightMode:false;
     const kS=Math.max(.3,(()=>{try{const f=(window._FLEET||[]).find(x=>x.model===window._activeModelId);return f&&f.camScale?Math.max(.45,f.camScale):1;}catch(e){return 1;}})());
@@ -11494,7 +11496,8 @@ startBtn.addEventListener('click',async()=>{
     ultra: { tex: 4096, tiles: 484,  zoom: 19 }
 };
   const resSelect = document.getElementById('resSelect');
-  const resVal = resSelect ? resSelect.value : 'med';
+  const resVal = resSelect ? resSelect.value : 'high';
+  try{localStorage.setItem('sky_res',resVal);}catch(e){}
   const r = RES_SETTINGS[resVal] || RES_SETTINGS.med;
   
   CFG.texSize = r.tex;
@@ -13713,10 +13716,11 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
       const NAMES=['LOW','MEDIUM','HIGH','ULTRA'];
       let q=-1;
       const setQ=(n,quiet)=>{n=Math.max(0,Math.min(3,n));if(n===q)return;q=n;window._gq=n;
+        // never render below the screen's own resolution; higher levels use the display's extra pixel density
         const dpr=window.devicePixelRatio||1;
-        const hiScale=1/Math.min(dpr,n>=3?1.5:1.15);
-        engine.setHardwareScalingLevel(n===0?1.25:(n===1?1.0:hiScale));
-        if(dp){dp.samples=[1,1,1,2][n];dp.fxaaEnabled=true;dp.sharpenEnabled=n>=1;dp.bloomEnabled=n>=1;dp.bloomWeight=[0,.24,.28,.34][n];}
+        engine.setHardwareScalingLevel(1/Math.min(dpr,[1,1.25,1.5,2][n]));
+        if(dp){dp.samples=[1,1,1,2][n];dp.fxaaEnabled=true;dp.sharpenEnabled=true;dp.sharpen.edgeAmount=n>=2?.32:.4;dp.sharpen.colorAmount=1;
+          dp.bloomEnabled=n>=1;dp.bloomWeight=[0,.24,.28,.34][n];}
         try{if(window._glow)window._glow.isEnabled=n>=1;}catch(e){}
         try{const c=window._csm;if(c){sun.shadowEnabled=n>=1;c.numCascades=[1,2,2,3][n];c.shadowMaxZ=[350,550,850,1200][n];c.filteringQuality=n>=2?BABYLON.ShadowGenerator.QUALITY_MEDIUM:BABYLON.ShadowGenerator.QUALITY_LOW;}}catch(e){console.warn('q shadows',e);}
         try{if(n>=3&&!window._vls&&window._mkGodrays)window._vls=window._mkGodrays();
@@ -13749,8 +13753,9 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
         const fps=fr*1000/acc;acc=0;fr=0;if(!auto)return;
         // below LOW quality, keep trading resolution for frame rate (down to ~55% of screen resolution)
         const lvl=engine.getHardwareScalingLevel();
-        if(fps<30&&q===0){if(lvl<1.8)engine.setHardwareScalingLevel(Math.min(1.8,lvl+.15));}
-        else if(fps>50&&q===0&&lvl>1.25){engine.setHardwareScalingLevel(Math.max(1.25,lvl-.1));}
+        // only a mild resolution drop, and only when it is really struggling (a big drop made everything blurry)
+        if(fps<24&&q===0){if(lvl<1.3)engine.setHardwareScalingLevel(Math.min(1.3,lvl+.1));}
+        else if(fps>40&&q===0&&lvl>1.0){engine.setHardwareScalingLevel(Math.max(1.0,lvl-.1));}
         if(fps<42){low++;high=0;if(low>=2&&q>0){setQ(q-1,true);low=0;}}
         else if(fps>57){high++;low=0;if(high>=6&&q<(isTouchDev?1:2)){setQ(q+1,true);high=0;}}else{low=0;high=0;}});
     }catch(e){console.warn('quality',e);}
