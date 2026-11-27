@@ -173,6 +173,7 @@ def add_xml(fn, parent_m):
     for mdl in root.findall('model'):
         mp = mdl.findtext('path')
         if not mp or 'landinglight' in mp: continue
+        if os.environ.get('SKIP_PATH') and re.search(os.environ['SKIP_PATH'], mp): continue
         f = resolve(mp, base)
         if not f: print('missing', mp, file=sys.stderr); continue
         m = mat_mul(here, offsets_matrix(mdl.find('offsets')))
