@@ -25,7 +25,7 @@ paint its live PFD / ND / EICAS onto them). The missing shared FlightGear CDU mo
 
 ## Liveries for the real 737-800 (`assets/liveries/b738/`)
 
-`DAL`, `AAL`, `UAL`, `KAL`, `KLM-800`, `QFA-800`, `RYR-800`, `THY-800` and `base.png` come from the
+`DAL`, `AAL`, `UAL`, `KAL`, `KLM-800`, `QFA-800`, `RYR-800`, `THY-800`, `ASA`, `C-GWSZ`, `TUI-800`, `9M-MXA`, `AMO`, `ARG-800`, `AVA`, `CMP`, `GIA`, `CAL`, `MSR-new` (from `MSR new.png`), `Jet2`, `SKY-800`, `nok`, `AEA-skyteam`, `TRA-800`, `BER`, `AJA` and `base.png` come from the
 [FlightGear 737-800](https://github.com/FGMEMBERS/737-800) `Models/Liveries-800` (GPLv2, FlightGear livery
 authors). Other airlines are painted at runtime onto `base.png` from the colours in `LIVS` (`game.js`).
 Airline names and logos are trademarks of their owners.
