@@ -5518,7 +5518,7 @@ function drawEICAS(ctx,W,H){
 let _screenAccum=0,_screenPhase=0;
 function drawScreens(hdg,pitch,bank){
   if(camMode!==1)return;
-  const isAnalog=ANALOG_SET.has(window._activeModelId);
+  const isAnalog=ANALOG_SET.has(window._activeModelId)&&!window._realDeckOn;
   try{setPanelCategory(isAnalog);}catch(e){}
   if(isAnalog){
     _screenAccum++;
@@ -11598,7 +11598,8 @@ function respawn(){
       n=['cessna','wonderful','dc3','atr','dhc8','crj9','e190','dc9','md83','a320','b737','dc8','f18','dc10','l1011','b787','a350','b777','b747','a380','concorde'];
     const mp=i=>{const k=n.indexOf(o[i]);return k>=0?k:0;};
     const mf=C.maxFleet==null?C.upgrades.fleet:C.maxFleet;C.upgrades.fleet=mp(C.upgrades.fleet);C.maxFleet=mp(mf);C.fleetV=5;save();}
-  if(C.maxFleet==null||C.maxFleet<C.upgrades.fleet){C.maxFleet=C.upgrades.fleet;save();}
+  // a code-unlocked aircraft in use must not raise the owned tier (that would unlock everything below it)
+  if(C.maxFleet==null||(C.maxFleet<C.upgrades.fleet&&!(Array.isArray(C.unlockedFleet)&&FLEET[C.upgrades.fleet]&&C.unlockedFleet.includes(FLEET[C.upgrades.fleet].id)))){C.maxFleet=C.upgrades.fleet;save();}
 
 const FLEET = [
   { id:'cessna', name:'Cessna 172', tag:'GA trainer', pax:3, fare:120, cruise:120, cost:0, model:'cessna', camScale:0.35,
@@ -13163,12 +13164,24 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
   if(!shopEl)throw new Error('Aircraft store markup is missing');
   let shopTab='fleet';
   const REDEEM_CODES={SKYDECK5000:5000,FLYHIGH:2500,FIRSTFLIGHT:1000};
+  // aircraft codes: unlock specific fleet entries for free (they show as SELECT in the hangar)
+  const AIRCRAFT_CODES={BOEINGFLEET:['b737','b747'],BOEING737:['b737'],JUMBO747:['b747']};
+  const unlocked=()=>(C.unlockedFleet=Array.isArray(C.unlockedFleet)?C.unlockedFleet:[]);
+  const ownsFleet=i=>i<=C.maxFleet||unlocked().includes(FLEET[i]&&FLEET[i].id);
   function redeemCode(){
     const input=document.getElementById('redeemCode');
     const message=document.getElementById('redeemMessage');
     const code=input.value.trim().toUpperCase();
     message.className='';
     if(!code){message.textContent='Enter a code first.';message.classList.add('error');return;}
+    if(Object.prototype.hasOwnProperty.call(AIRCRAFT_CODES,code)){
+      const ids=AIRCRAFT_CODES[code].filter(id=>FLEET.some(f=>f.id===id));
+      const fresh=ids.filter(id=>{const i=FLEET.findIndex(f=>f.id===id);return !ownsFleet(i);});
+      if(!fresh.length){message.textContent='You already have those aircraft.';message.classList.add('error');return;}
+      unlocked().push(...fresh);C.redeemedCodes[code]=true;save();renderShop();renderHUD();input.value='';
+      message.textContent='Code accepted: '+fresh.map(id=>FLEET.find(f=>f.id===id).name).join(' and ')+' unlocked in your fleet.';
+      message.classList.add('success');return;
+    }
     if(!Object.prototype.hasOwnProperty.call(REDEEM_CODES,code)){
       message.textContent='That code is not valid.';message.classList.add('error');return;
     }
@@ -13189,14 +13202,14 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
     document.querySelectorAll('.spTab').forEach(t=>t.classList.toggle('on',t.dataset.tab===shopTab));
     if(shopTab==='fleet'){
       body.innerHTML=FLEET.map((f,i)=>{
-        const cur=i===C.upgrades.fleet;const owned=i<=C.maxFleet&&!cur;const next=i===C.maxFleet+1;const canBuy=next&&C.money>=f.cost;
+        const cur=i===C.upgrades.fleet;const owned=ownsFleet(i)&&!cur;const next=i===C.maxFleet+1;const canBuy=next&&C.money>=f.cost;
         const btn=cur?'<button class="spBuy cur">IN USE</button>':owned?`<button class="spBuy own" data-sel-fleet="${i}">SELECT</button>`:next?`<button class="spBuy" ${canBuy?'':'disabled'} data-buy-fleet="${i}">$${f.cost.toLocaleString()}</button>`:`<button class="spBuy" disabled>LOCKED</button>`;
         return `<div class="spItem ${cur?'current':(owned?'owned':(next?'':'locked'))}">
           <div><div class="spName">${f.name}</div><div class="spDesc">${f.tag} · ${f.pax} pax · cruise ${f.cruise} kts · $${f.fare}/pax${next?' · <b style="color:#22d3ee">NEXT TIER</b>':''}</div></div>
           ${btn}</div>`;
       }).join('');
       body.querySelectorAll('[data-sel-fleet]').forEach(b=>b.addEventListener('click',()=>{
-        const i=+b.dataset.selFleet,f=FLEET[i];if(i>C.maxFleet)return;
+        const i=+b.dataset.selFleet,f=FLEET[i];if(!ownsFleet(i))return;
         C.upgrades.fleet=i;save();setActiveAircraft(f.model);contractList=genContractList();
         renderShop();renderHUD();renderContracts();showMsg('✈ SELECTED · '+f.name,2500);
       }));
@@ -16014,17 +16027,26 @@ const SKY_PREFS=(function(){
           mt.albedoColor=mt.albedoColor.multiply(mt.albedoTexture?PANEL:GREY);
           // self-lit panel textures (e.g. the autopilot strip) ignore the tint: keep only a faint backlight
           if(mt.emissiveTexture||(mt.emissiveColor&&mt.emissiveColor.r>0))mt.emissiveColor=mt.emissiveColor.scale(.25);}}
-      holder.setEnabled(false);state='ready';
+      holder.setEnabled(false);state='ready';lastEyeFor='';
       console.info('real 737 cockpit loaded: screens',scr.length+(lower?1:0));
     }catch(e){console.warn('real cockpit failed, keeping code-built cockpit',e);state='failed';}
   }
   window._realCockpit=()=>({state,holder});
+  // Every airliner without its own detailed cockpit borrows this flight deck; GA, military, business jets
+  // and the Cessna (which has its own real cabin) keep theirs.
+  const OWN_DECK=new Set(['cessna','cirrus','wonderful','f18','learjet45','phenom100','citx','g650']);
+  let lastEyeFor='';
   scene.onBeforeRenderObservable.add(()=>{
-    const want=SKY_PREFS.realCockpit&&camMode===1&&(window._activeModelId||'737')==='737';
+    const id=window._activeModelId||'737';
+    const want=SKY_PREFS.realCockpit&&camMode===1&&!OWN_DECK.has(id);
     if(want&&state==='idle')load();
     const show=want&&state==='ready';
+    window._realDeckOn=show;
+    if(show&&lastEyeFor!==id){lastEyeFor=id;   // sit the deck at this aircraft's pilot eye
+      const eye=window._ckEye||[-.6,.30,14.0];holder.position.set(eye[0]-FG_EYE.x,eye[1]-FG_EYE.y,eye[2]-FG_EYE.z);}
     if(holder&&holder.isEnabled()!==show)holder.setEnabled(show);
-    if(show){if(interiorRoot.isEnabled())interiorRoot.setEnabled(false);hidInterior=true;}
+    if(show){if(interiorRoot.isEnabled())interiorRoot.setEnabled(false);hidInterior=true;
+      const pre='ckf_'+id+'_';for(const m of scene.meshes)if(m.name.startsWith(pre)&&m.isEnabled())m.setEnabled(false);}
     else if(hidInterior){hidInterior=false;if(camMode===1)interiorRoot.setEnabled(true);}
   });
 })();
