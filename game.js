@@ -16044,7 +16044,8 @@ const SKY_PREFS=(function(){
     b744:{file:'b744-cockpit.glb',eye:[-.55,3.7,24.05],grey:false,
       screens:{SCREEN_cockpit_0:'eicas',SCREEN_forward_1:'eicas',SCREEN_forward_2:'ndL',SCREEN_forward_3:'ndR',SCREEN_forward_4:'pfdL'}}
   };
-  const deckFor=id=>id==='b747'?'b744':'b738';
+  DECKS.concorde={file:'concorde-cockpit.glb',eye:[-.55,1.4,22.9],grey:false};   // analog panel, no glass screens
+  const deckFor=id=>id==='b747'?'b744':id==='concorde'?'concorde':'b738';
   const st={};let hidInterior=false,lastKey='';
   async function load(key){
     const D=DECKS[key],S=st[key]={state:'loading'};

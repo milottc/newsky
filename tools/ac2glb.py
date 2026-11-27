@@ -64,7 +64,9 @@ def parse_ac(fn):
             elif k == 'loc': o['loc'] = tuple(map(float, l.split()[1:4]))
             elif k == 'rot': o['rot'] = list(map(float, l.split()[1:10]))
             elif k == 'data':
-                n = int(l.split()[1]); i += 1 if n >= 0 else 0
+                # data <bytes> may span several lines
+                n = int(l.split()[1]); got = 0
+                while got < n and i < len(toks): got += len(toks[i]) + 1; i += 1
             elif k == 'numvert':
                 n = int(l.split()[1])
                 for _ in range(n):
@@ -94,6 +96,8 @@ def parse_ac(fn):
                 o['world'] = world
                 objs.append(o)
                 for _ in range(int(l.split()[1])):
+                    while i < len(toks) and not toks[i].startswith('OBJECT'): i += 1
+                    if i >= len(toks): break
                     i = read_obj(i, world)
                 return i
         return i
