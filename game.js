@@ -7396,10 +7396,10 @@ const OSM_FACADE_MATS=(()=>{
       bc.fillStyle='rgb(128,150,246)';bc.fillRect(gx,gy+gh-3,gw,3);
     };
     if(kind==='glass'){
-      dc.fillStyle='#364e64';dc.fillRect(0,0,S,S);
+      dc.fillStyle='#7f9ab3';dc.fillRect(0,0,S,S);
       const floors=8,bays=8,fh=S/floors,bw=S/bays;
       for(let f=0;f<floors;f++){
-        dc.fillStyle='#1f2f3f';dc.fillRect(0,f*fh,S,fh*.20);
+        dc.fillStyle='#4a5d70';dc.fillRect(0,f*fh,S,fh*.20);
         dc.fillStyle='rgba(255,255,255,0.06)';dc.fillRect(0,f*fh+fh*.18,S,2);
         for(let b=0;b<bays;b++){
           const r=hsh(f*17+3,b*31+7);
@@ -7472,8 +7472,10 @@ const OSM_FACADE_MATS=(()=>{
     mat.bumpTexture=bump;
     mat.bumpTexture.level=0.35;
     mat.emissiveColor=new BABYLON.Color3(.04,.04,.04);
-    mat.metallic=kind==='glass'?0.52:(kind==='ind'?0.32:(kind==='comm'?0.12:0.03));
-    mat.roughness=kind==='glass'?0.18:(kind==='ind'?0.48:(kind==='comm'?0.54:0.80));
+    // lighter, less metallic facades: real towers read light blue-grey from the air, not black
+    mat.metallic=kind==='glass'?0.28:(kind==='ind'?0.18:(kind==='comm'?0.06:0.02));
+    mat.roughness=kind==='glass'?0.22:(kind==='ind'?0.55:(kind==='comm'?0.62:0.82));
+    mat.environmentIntensity=kind==='glass'?1.25:0.9;mat.directIntensity=1.15;
     mat.specularIntensity=kind==='glass'?0.78:0.32;
     mat.backFaceCulling=false;
     return mat;
@@ -7554,10 +7556,111 @@ function generateProceduralOsmBuildings(bounds){
   }
   return elements;
 }
+/* ===== OpenFreeMap vector tiles (free, keyless, CORS): real building footprints + heights worldwide =====
+   Minimal Mapbox Vector Tile decoder (protobuf) for the 'building' layer of the OpenMapTiles schema. */
+const OFM={tpl:null,tplP:null,cache:new Map(),fail:0};
+function ofmTemplate(){
+  if(OFM.tpl)return Promise.resolve(OFM.tpl);
+  return OFM.tplP||(OFM.tplP=fetch('https://tiles.openfreemap.org/planet').then(r=>r.json()).then(j=>OFM.tpl=j.tiles[0]).catch(e=>{OFM.tplP=null;throw e;}));
+}
+function mvtDecodeBuildings(buf){
+  const u8=new Uint8Array(buf),dv=new DataView(buf);
+  let p=0;
+  const varint=()=>{let r=0,s=0,b;do{b=u8[p++];r+= (b&0x7f)*Math.pow(2,s);s+=7;}while(b&0x80);return r;};
+  const skip=t=>{if(t===0)varint();else if(t===1)p+=8;else if(t===2)p+=varint();else if(t===5)p+=4;};
+  const out=[];
+  const readLayer=end=>{
+    let name='',extent=4096;const keys=[],vals=[],feats=[];
+    while(p<end){const tag=varint(),f=tag>>3,t=tag&7;
+      if(f===1&&t===2){const l=varint();name=new TextDecoder().decode(u8.subarray(p,p+l));p+=l;}
+      else if(f===2&&t===2){const l=varint();feats.push([p,p+l]);p+=l;}
+      else if(f===3&&t===2){const l=varint();keys.push(new TextDecoder().decode(u8.subarray(p,p+l)));p+=l;}
+      else if(f===4&&t===2){const l=varint(),e=p+l;let v=null;
+        while(p<e){const tg=varint(),ff=tg>>3,tt=tg&7;
+          if(ff===1&&tt===2){const ll=varint();v=new TextDecoder().decode(u8.subarray(p,p+ll));p+=ll;}
+          else if(ff===2&&tt===5){v=dv.getFloat32(p,true);p+=4;}
+          else if(ff===3&&tt===1){v=dv.getFloat64(p,true);p+=8;}
+          else if((ff===4||ff===5)&&tt===0){v=varint();}
+          else if(ff===6&&tt===0){const z=varint();v=(z%2)?-(z+1)/2:z/2;}
+          else if(ff===7&&tt===0){v=!!varint();}
+          else skip(tt);}
+        vals.push(v);}
+      else if(f===5&&t===0){extent=varint();}
+      else skip(t);}
+    return {name,extent,keys,vals,feats};
+  };
+  while(p<u8.length){const tag=varint(),f=tag>>3,t=tag&7;
+    if(f===3&&t===2){const l=varint(),end=p+l;const L=readLayer(end);p=end;
+      if(L.name!=='building')continue;
+      for(const [fs,fe] of L.feats){p=fs;const props={};let type=0,geom=[];
+        while(p<fe){const tag2=varint(),ff=tag2>>3,tt=tag2&7;
+          if(ff===2&&tt===2){const l2=varint(),e2=p+l2;while(p<e2){const k=varint(),v=varint();props[L.keys[k]]=L.vals[v];}}
+          else if(ff===3&&tt===0)type=varint();
+          else if(ff===4&&tt===2){const l2=varint(),e2=p+l2;while(p<e2)geom.push(varint());}
+          else skip(tt);}
+        if(type!==3)continue;
+        // decode polygon rings (command integers + zig-zag deltas)
+        const rings=[];let x=0,y=0,i=0,ring=null;
+        while(i<geom.length){const c=geom[i++],id=c&7,n=c>>3;
+          if(id===1||id===2){for(let k=0;k<n;k++){const dx=geom[i++],dy=geom[i++];x+=(dx>>>1)^-(dx&1);y+=(dy>>>1)^-(dy&1);
+              if(id===1){ring=[[x,y]];rings.push(ring);}else ring.push([x,y]);}}
+          else if(id===7){}}
+        out.push({props,rings,extent:L.extent});}
+    }else skip(t);}
+  return out;
+}
+async function ofmTileBuildings(z,x,y){
+  const key=z+'/'+x+'/'+y;
+  if(OFM.cache.has(key))return OFM.cache.get(key);
+  const tpl=await ofmTemplate();
+  const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),9000);
+  const pr=fetch(tpl.replace('{z}',z).replace('{x}',x).replace('{y}',y),{signal:ac.signal}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.arrayBuffer();})
+    .then(b=>mvtDecodeBuildings(b)).finally(()=>clearTimeout(tm));
+  OFM.cache.set(key,pr);if(OFM.cache.size>60)OFM.cache.delete(OFM.cache.keys().next().value);
+  pr.catch(()=>OFM.cache.delete(key));
+  return pr;
+}
+// Buildings inside an OSM tile's bounds, converted to the Overpass-like element format the city builder uses.
+async function fetchOfmBuildings(bounds){
+  const Z=14,N=1<<Z;
+  const tx=lon=>Math.floor((lon+180)/360*N);
+  const ty=lat=>{const r=lat*Math.PI/180;return Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*N);};
+  const x0=tx(bounds.west),x1=tx(bounds.east-1e-9),y0=ty(bounds.north),y1=ty(bounds.south+1e-9);
+  if((x1-x0+1)*(y1-y0+1)>9)return null;
+  const jobs=[];for(let x=x0;x<=x1;x++)for(let y=y0;y<=y1;y++)jobs.push(ofmTileBuildings(Z,x,y).then(f=>({x,y,f})));
+  const tiles=await Promise.all(jobs);
+  const out=[];let id=7e9;
+  for(const {x,y,f} of tiles)for(const b of f){
+    const pr=b.props||{};if(pr.hide_3d)continue;
+    const toLL=([px,py])=>{const lon=(x+px/b.extent)/N*360-180;const n=Math.PI*(1-2*(y+py/b.extent)/N);return {lat:Math.atan(Math.sinh(n))*180/Math.PI,lon};};
+    // exterior rings have positive signed area in tile (y-down) coordinates
+    for(const r of b.rings){if(r.length<3)continue;let a=0;for(let i=0;i<r.length;i++){const q=r[(i+1)%r.length];a+=r[i][0]*q[1]-q[0]*r[i][1];}
+      if(a<=0)continue;
+      const g=r.map(toLL);g.push(g[0]);
+      let clat=0,clon=0;for(const q of g){clat+=q.lat;clon+=q.lon;}clat/=g.length;clon/=g.length;
+      if(clat<bounds.south||clat>=bounds.north||clon<bounds.west||clon>=bounds.east)continue;
+      const h=+pr.render_height||0,mh=+pr.render_min_height||0;
+      // OpenMapTiles has no building type: infer one from size and height so facades and roofs vary
+      const areaM=Math.abs(a)/(b.extent*b.extent)*Math.pow(40075016*Math.cos(clat*Math.PI/180)/N,2);
+      const tags={building:h&&h<=10&&areaM<260?'house':(h<=14&&areaM>2500?'industrial':(h>40?'office':(h>=12?'apartments':'yes'))),'building:part':undefined};
+      if(h)tags.height=String(h);if(mh)tags.min_height=String(mh);
+      if(pr.colour)tags['building:colour']=pr.colour;
+      if(tags.building==='house'&&!mh)tags['roof:shape']=((++id)%3===0)?'hipped':'gabled';
+      out.push({type:'way',id:++id,geometry:g,tags,_size:areaM*Math.max(4,h)});}
+  }
+  // biggest (footprint x height) first, so a per-tile cap drops garden sheds before landmarks
+  out.sort((a,b)=>b._size-a._size);
+  return out;
+}
 async function fetchOsmBuildings(bounds){
   const key=Object.values(bounds).map(v=>v.toFixed(4)).join(',');
   if(osmCache.has(key))return osmCache.get(key);
   const bbox=[bounds.south.toFixed(5),bounds.west.toFixed(5),bounds.north.toFixed(5),bounds.east.toFixed(5)].join(',');
+
+  // 0. OpenFreeMap vector tiles: fast, worldwide, no key
+  if(OFM.fail<4){try{const els=await fetchOfmBuildings(bounds);
+    if(els){OFM.fail=0;osmCache.set(key,els);if(osmCache.size>90)osmCache.delete(osmCache.keys().next().value);return els;}}
+    catch(e){OFM.fail++;}}
 
   // 1. Local server cache proxy
   try{
@@ -7602,10 +7705,8 @@ async function fetchOsmBuildings(bounds){
     osmReleaseSlot();
   }
 
-  // 3. Guaranteed procedural fallback so 3D buildings ALWAYS render without errors
-  const procedural=generateProceduralOsmBuildings(bounds);
-  osmCache.set(key,procedural);
-  return procedural;
+  // 3. No data reachable: show no buildings rather than an invented grid of boxes
+  return [];
 }
 function osmParseColor(raw){
   if(!raw)return null;
@@ -7874,7 +7975,7 @@ async function createOsmBuildingMeshesAsync(elements,cx,cz,tokenCheck){
     for(let i=0;i<tris.length;i+=3)rb.indices.push(rIdx[tris[i]],rIdx[tris[i+1]],rIdx[tris[i+2]]);
   };
 
-  const maxElements=Math.min(elements.length,4500);
+  const maxElements=Math.min(elements.length,(isTouchDev||(window._gq|0)===0)?1800:4500);
   for(let ei=0;ei<maxElements;ei++){
     if(tokenCheck&&!tokenCheck())return {meshes:created,count:accepted,aborted:true};
     const element=elements[ei];
@@ -8014,7 +8115,9 @@ function streamOsmTiles(cx,cz){
   const reqToken=osmBuildRequest;
   const centerLL=worldToLL(cx,cz);
   const dLon=osmLonStep(centerLL.lat);
-  const maxStreamM=5200,pruneM=7600;
+  // phones/tablets and LOW graphics stream a smaller city (3x3 tiles) to keep frame rates up
+  const lite=isTouchDev||(window._gq|0)===0;
+  const maxStreamM=lite?3400:5200,pruneM=lite?5200:7600,ringN=lite?1:2;
 
   // Prune distant cached tiles outside prune radius
   let pruned=false;
@@ -8029,8 +8132,8 @@ function streamOsmTiles(cx,cz){
 
   const cLat=Math.floor(centerLL.lat/OSM_TILE_LAT),cLon=Math.floor(centerLL.lon/dLon);
   const candidates=[];
-  for(let di=-2;di<=2;di++){
-    for(let dj=-2;dj<=2;dj++){
+  for(let di=-ringN;di<=ringN;di++){
+    for(let dj=-ringN;dj<=ringN;dj++){
       const ilat=cLat+di,ilon=cLon+dj;
       const tLat=(ilat+0.5)*OSM_TILE_LAT,tLon=(ilon+0.5)*dLon;
       const w=llToWorld(tLat,tLon);
