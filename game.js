@@ -16030,68 +16030,77 @@ const SKY_PREFS=(function(){
   });
 })();
 
-/* ===== Real 737-800 flight deck (FlightGear cockpit, GPLv2, see assets/models/README.md) =====
-   Loaded in the background the first time the 737 cockpit view is used. While it is shown, the code-built
-   cockpit is hidden and the sim's live PFD / ND / EICAS canvases are mapped onto the model's six screens. */
+/* ===== Real flight decks (FlightGear cockpits, GPLv2, see assets/models/README.md) =====
+   Loaded in the background the first time a deck is needed. While shown, the code-built cockpit is hidden and the
+   sim's live PFD / ND / EICAS canvases are mapped onto the model's screens. The 737-800 deck is the default for
+   airliners and business jets; types with their own converted deck (747-400) use that. */
 (function(){
-  const FILE='assets/models/b738-cockpit.glb';
-  const FG_EYE=new BABYLON.Vector3(-.51,1.28,17.18);   // FlightGear captain viewpoint in sim axes
-  let holder=null,state='idle',hidInterior=false;
-  async function load(){
-    state='loading';
+  const DECKS={
+    b738:{file:'b738-cockpit.glb',eye:[-.51,1.28,17.18],grey:true},    // FlightGear captain eye, sim axes
+    // the 747 file holds both PFDs in one mesh, so its screens are mapped by name
+    b744:{file:'b744-cockpit.glb',eye:[-.55,3.7,24.05],grey:false,
+      screens:{SCREEN_cockpit_0:'eicas',SCREEN_forward_1:'eicas',SCREEN_forward_2:'ndL',SCREEN_forward_3:'ndR',SCREEN_forward_4:'pfdL'}}
+  };
+  const deckFor=id=>id==='b747'?'b744':'b738';
+  const st={};let hidInterior=false,lastKey='';
+  async function load(key){
+    const D=DECKS[key],S=st[key]={state:'loading'};
     try{
       if(!(BABYLON.SceneLoader.IsPluginForExtensionAvailable&&BABYLON.SceneLoader.IsPluginForExtensionAvailable('.glb'))){
         const v=BABYLON.Engine.Version||'7.31.0';
         await new Promise((res,rej)=>{const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/babylonjs-loaders@'+v+'/babylonjs.loaders.min.js';sc.onload=res;sc.onerror=rej;document.head.appendChild(sc);});
       }
-      const r=await BABYLON.SceneLoader.ImportMeshAsync('','assets/models/','b738-cockpit.glb',scene);
-      holder=new BABYLON.TransformNode('realCockpit738',scene);
-      r.meshes[0].parent=holder;holder.parent=aircraftRoot;
-      const eye=window._ckEye||[-.6,.30,14.0];
-      holder.position.set(eye[0]-FG_EYE.x,eye[1]-FG_EYE.y,eye[2]-FG_EYE.z);
-      // screens: lowest one is the lower DU (pedestal); the other five left->right are PFD, ND, upper EICAS, ND, PFD
+      const r=await BABYLON.SceneLoader.ImportMeshAsync('','assets/models/',D.file,scene);
+      const holder=new BABYLON.TransformNode('realDeck_'+key,scene);r.meshes[0].parent=holder;holder.parent=aircraftRoot;
       holder.computeWorldMatrix(true);r.meshes.forEach(m=>m.computeWorldMatrix(true));
-      const scr=r.meshes.filter(m=>/^SCREEN_/.test(m.name));
-      const local=m=>BABYLON.Vector3.TransformCoordinates(m.getBoundingInfo().boundingBox.centerWorld,holder.getWorldMatrix().clone().invert());
+      const inv=holder.getWorldMatrix().clone().invert();
+      const local=m=>BABYLON.Vector3.TransformCoordinates(m.getBoundingInfo().boundingBox.centerWorld,inv);
+      // screens: the lowest is the lower EICAS on the pedestal; the rest map by position across the panel:
+      // nearest the centre = upper EICAS, then ND, then PFD outboard on each side
+      let scr=r.meshes.filter(m=>/^SCREEN_/.test(m.name));
       scr.sort((a,b)=>local(a).y-local(b).y);
-      const lower=scr.length>5?scr.shift():null;
-      scr.sort((a,b)=>local(a).x-local(b).x);
-      const keys=['pfdL','ndL','eicas','ndR','pfdR'];
-      const screenMat=(tex,n)=>{const m=new BABYLON.StandardMaterial('realScr_'+n,scene);m.diffuseColor=BABYLON.Color3.Black();m.specularColor=BABYLON.Color3.Black();
+      const lower=scr.length>4?scr.shift():null;
+      const centreX=0;   // decks are modelled on the aircraft centreline
+      const eic=scr.slice().sort((a,b)=>Math.abs(local(a).x-centreX)-Math.abs(local(b).x-centreX))[0];
+      const left=scr.filter(m=>m!==eic&&local(m).x<local(eic).x).sort((a,b)=>local(b).x-local(a).x);
+      const right=scr.filter(m=>m!==eic&&local(m).x>local(eic).x).sort((a,b)=>local(a).x-local(b).x);
+      const screenMat=(tex,n)=>{const m=new BABYLON.StandardMaterial('realScr_'+key+n,scene);m.diffuseColor=BABYLON.Color3.Black();m.specularColor=BABYLON.Color3.Black();
         m.emissiveTexture=tex;m.disableLighting=true;m.backFaceCulling=false;return m;};
-      // the FlightGear screen quads map their texture upside down relative to our canvases: flip v
-      for(const m of scr.concat(lower?[lower]:[])){const uv=m.getVerticesData(BABYLON.VertexBuffer.UVKind);if(uv){for(let i=1;i<uv.length;i+=2)uv[i]=1-uv[i];m.setVerticesData(BABYLON.VertexBuffer.UVKind,uv);}}
-      scr.forEach((m,i)=>{const k=keys[i];if(k&&displays[k])m.material=screenMat(displays[k],k);});
-      if(lower&&displays.eicas)lower.material=screenMat(displays.eicas,'lower');
-      // FlightGear's shell and fittings are untextured white: tint them Boeing grey, dim textured panels a touch
+      const put=(m,k)=>{if(!m||!displays[k])return;const uv=m.getVerticesData(BABYLON.VertexBuffer.UVKind);   // FG quads are upside down vs our canvases
+        if(uv){for(let i=1;i<uv.length;i+=2)uv[i]=1-uv[i];m.setVerticesData(BABYLON.VertexBuffer.UVKind,uv);}m.material=screenMat(displays[k],k);};
+      if(D.screens){for(const m of r.meshes)if(D.screens[m.name])put(m,D.screens[m.name]);}
+      else{put(eic,'eicas');put(left[0],'ndL');put(left[1],'pfdL');put(right[0],'ndR');put(right[1],'pfdR');put(lower,'eicas');}
+      // look: the 737's untextured shell is tinted Boeing grey; textured decks just get softer lighting
       const done=new Set(),GREY=new BABYLON.Color3(.48,.52,.56),PANEL=new BABYLON.Color3(.66,.69,.73);
       for(const m of r.meshes){m.isPickable=false;const mt=m.material;if(!mt||done.has(mt)||/^realScr_/.test(mt.name))continue;done.add(mt);
-        if(mt instanceof BABYLON.PBRMaterial){mt.roughness=.62;mt.environmentIntensity=.45;mt.directIntensity=.6;
-          mt.albedoColor=mt.albedoColor.multiply(mt.albedoTexture?PANEL:GREY);
-          // self-lit panel textures (e.g. the autopilot strip) ignore the tint: keep only a faint backlight
+        if(mt instanceof BABYLON.PBRMaterial){mt.roughness=.62;mt.environmentIntensity=.45;mt.directIntensity=D.grey?.6:.75;
+          if(D.grey)mt.albedoColor=mt.albedoColor.multiply(mt.albedoTexture?PANEL:GREY);
+          else if(/fuselage\.ac:/i.test(mt.name))mt.albedoColor=mt.albedoColor.multiply(new BABYLON.Color3(.42,.4,.37)); // inside of the nose shell
           if(mt.emissiveTexture||(mt.emissiveColor&&mt.emissiveColor.r>0))mt.emissiveColor=mt.emissiveColor.scale(.25);}}
-      holder.setEnabled(false);state='ready';lastEyeFor='';
-      console.info('real 737 cockpit loaded: screens',scr.length+(lower?1:0));
-    }catch(e){console.warn('real cockpit failed, keeping code-built cockpit',e);state='failed';}
+      holder.setEnabled(false);S.holder=holder;S.state='ready';lastKey='';
+      console.info('real flight deck loaded',key,'screens',scr.length+(lower?1:0));
+    }catch(e){console.warn('real cockpit failed, keeping code-built cockpit',key,e);S.state='failed';}
   }
-  window._realCockpit=()=>({state,holder});
-  // Every airliner without its own detailed cockpit borrows this flight deck; GA, military, business jets
-  // and the Cessna (which has its own real cabin) keep theirs.
+  window._realCockpit=()=>st;
   // Keep their own cockpit: Cessna (real cabin), Cirrus (G1000 GA panel), F/A-18 (fighter), the novelty plane,
-  // and the DC-3 (1930s piston airliner; a glass deck would be wrong). Business jets get the deck scaled to their cabin.
+  // and the DC-3 (1930s piston airliner). Business jets get the 737 deck scaled to their cabin.
   const OWN_DECK=new Set(['cessna','cirrus','wonderful','f18','dc3']);
   const DECK_SCALE={phenom100:.76,learjet45:.8,citx:.85,g650:.9};
-  let lastEyeFor='';
   scene.onBeforeRenderObservable.add(()=>{
     const id=window._activeModelId||'737';
     const want=SKY_PREFS.realCockpit&&camMode===1&&!OWN_DECK.has(id);
-    if(want&&state==='idle')load();
-    const show=want&&state==='ready';
-    window._realDeckOn=show;
-    if(show&&lastEyeFor!==id){lastEyeFor=id;   // sit the deck at this aircraft's pilot eye
-      const eye=window._ckEye||[-.6,.30,14.0],k=DECK_SCALE[id]||1;holder.scaling.setAll(k);
-      holder.position.set(eye[0]-FG_EYE.x*k,eye[1]-FG_EYE.y*k,eye[2]-FG_EYE.z*k);}
-    if(holder&&holder.isEnabled()!==show)holder.setEnabled(show);
+    let key=deckFor(id);
+    // preload the deck ~12 s into a flight so switching to the cockpit is instant
+    if(!window._deckPreloadAt)window._deckPreloadAt=performance.now()+12000;
+    const preload=SKY_PREFS.realCockpit&&!OWN_DECK.has(id)&&window._userStarted&&performance.now()>window._deckPreloadAt;
+    if((want||preload)&&!st[key])load(key);
+    if(want&&st[key]&&st[key].state==='failed'&&key!=='b738'){key='b738';if(!st[key])load(key);}  // fall back to the 737 deck
+    const S=st[key],show=want&&S&&S.state==='ready';
+    window._realDeckOn=!!show;
+    for(const k in st){const h=st[k].holder;if(h){const on=show&&k===key;if(h.isEnabled()!==on)h.setEnabled(on);}}
+    if(show&&lastKey!==key+'|'+id){lastKey=key+'|'+id;   // sit the deck at this aircraft's pilot eye
+      const E=DECKS[key].eye,eye=window._ckEye||[-.6,.30,14.0],k=key==='b738'?(DECK_SCALE[id]||1):1;S.holder.scaling.setAll(k);
+      S.holder.position.set(eye[0]-E[0]*k,eye[1]-E[1]*k,eye[2]-E[2]*k);}
     if(show){if(interiorRoot.isEnabled())interiorRoot.setEnabled(false);hidInterior=true;
       const pre='ckf_'+id+'_';for(const m of scene.meshes)if(m.name.startsWith(pre)&&m.isEnabled())m.setEnabled(false);}
     else if(hidInterior){hidInterior=false;if(camMode===1)interiorRoot.setEnabled(true);}

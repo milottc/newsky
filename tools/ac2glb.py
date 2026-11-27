@@ -114,6 +114,10 @@ AC2FG = [[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]]
 groups = {}  # key -> dict(pos, nrm, uv, idx, mat, tex, two)
 SCREEN_N = [0]
 CROP = {'737-800.ac': lambda P: all(p[2] < 15.2 for p in P) or any(abs(p[0]) > 2.3 for p in P)}  # keep only the nose shell
+# extra crop via env: CROP_AC=<file.ac> CROP_ZMIN=<z> CROP_XMAX=<|x|>  (file-space coordinates, z forward)
+if os.environ.get('CROP_AC'):
+    _zmin=float(os.environ.get('CROP_ZMIN','0')); _xmax=float(os.environ.get('CROP_XMAX','99'))
+    CROP[os.environ['CROP_AC']] = lambda P,z=_zmin,x=_xmax: all(p[2] < z for p in P) or any(abs(p[0]) > x for p in P)
 textures = {}
 
 def add_ac(fn, place_m):
