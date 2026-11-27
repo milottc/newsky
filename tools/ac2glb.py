@@ -177,6 +177,13 @@ def add_xml(fn, parent_m):
 
 add_xml(ROOTXML, ident())
 
+def png_has_alpha(path):
+    try:
+        h = open(path, 'rb').read(33)
+        return h[:8] == b'\x89PNG\r\n\x1a\n' and h[25] in (4, 6)  # grey+alpha or RGBA
+    except Exception:
+        return False
+
 # ---------------- glTF writer ----------------
 bin_ = bytearray(); bufviews = []; accessors = []; meshes = []; nodes = []; materials = []; images = []; gtex = []
 def push(data, target=None):
@@ -203,6 +210,10 @@ for key, g in groups.items():
            'doubleSided': g['two']}
     if any(mt['emis']): mat['emissiveFactor'] = mt['emis']
     if mt['trans'] > 0.01: mat['alphaMode'] = 'BLEND'
+    elif g['tex'] and png_has_alpha(g['tex']):
+        # cut-out textures (prop blur, glass): blend if mostly translucent, otherwise alpha-test
+        mat['alphaMode'] = 'BLEND' if re.search(r'transparent|glass|prop|window', g['tex'], re.I) else 'MASK'
+        if mat['alphaMode'] == 'MASK': mat['alphaCutoff'] = 0.5
     if g['tex']:
         mat['pbrMetallicRoughness']['baseColorTexture'] = {'index': texture_for(g['tex'])}
         if any(mt['emis']): mat['emissiveTexture'] = {'index': texture_for(g['tex'])}
