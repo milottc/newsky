@@ -16034,7 +16034,10 @@ const SKY_PREFS=(function(){
   window._realCockpit=()=>({state,holder});
   // Every airliner without its own detailed cockpit borrows this flight deck; GA, military, business jets
   // and the Cessna (which has its own real cabin) keep theirs.
-  const OWN_DECK=new Set(['cessna','cirrus','wonderful','f18','learjet45','phenom100','citx','g650']);
+  // Keep their own cockpit: Cessna (real cabin), Cirrus (G1000 GA panel), F/A-18 (fighter), the novelty plane,
+  // and the DC-3 (1930s piston airliner; a glass deck would be wrong). Business jets get the deck scaled to their cabin.
+  const OWN_DECK=new Set(['cessna','cirrus','wonderful','f18','dc3']);
+  const DECK_SCALE={phenom100:.76,learjet45:.8,citx:.85,g650:.9};
   let lastEyeFor='';
   scene.onBeforeRenderObservable.add(()=>{
     const id=window._activeModelId||'737';
@@ -16043,7 +16046,8 @@ const SKY_PREFS=(function(){
     const show=want&&state==='ready';
     window._realDeckOn=show;
     if(show&&lastEyeFor!==id){lastEyeFor=id;   // sit the deck at this aircraft's pilot eye
-      const eye=window._ckEye||[-.6,.30,14.0];holder.position.set(eye[0]-FG_EYE.x,eye[1]-FG_EYE.y,eye[2]-FG_EYE.z);}
+      const eye=window._ckEye||[-.6,.30,14.0],k=DECK_SCALE[id]||1;holder.scaling.setAll(k);
+      holder.position.set(eye[0]-FG_EYE.x*k,eye[1]-FG_EYE.y*k,eye[2]-FG_EYE.z*k);}
     if(holder&&holder.isEnabled()!==show)holder.setEnabled(show);
     if(show){if(interiorRoot.isEnabled())interiorRoot.setEnabled(false);hidInterior=true;
       const pre='ckf_'+id+'_';for(const m of scene.meshes)if(m.name.startsWith(pre)&&m.isEnabled())m.setEnabled(false);}
