@@ -13201,7 +13201,7 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
   let shopTab='fleet';
   const REDEEM_CODES={SKYDECK5000:5000,FLYHIGH:2500,FIRSTFLIGHT:1000};
   // aircraft codes: unlock specific fleet entries for free (they show as SELECT in the hangar)
-  const AIRCRAFT_CODES={BOEINGFLEET:['b737','b747'],BOEING737:['b737'],JUMBO747:['b747']};
+  const AIRCRAFT_CODES={BOEINGFLEET:['b737','b747'],FREEBOEING:['b737','b747'],BOEING737:['b737'],FREE737:['b737'],JUMBO747:['b747'],FREE747:['b747']};
   const unlocked=()=>(C.unlockedFleet=Array.isArray(C.unlockedFleet)?C.unlockedFleet:[]);
   const ownsFleet=i=>i<=C.maxFleet||unlocked().includes(FLEET[i]&&FLEET[i].id);
   function redeemCode(){
@@ -13233,6 +13233,9 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
     message.textContent='Code accepted — $'+reward.toLocaleString()+' added to your balance.';
     message.classList.add('success');
   }
+  // the home Settings page has its own code box: it fills the hangar field and redeems there
+  window.skyRedeem=code=>{const i=document.getElementById('redeemCode');i.value=code;redeemCode();
+    const m=document.getElementById('redeemMessage');return {ok:m.classList.contains('success'),text:m.textContent};};
   function renderShop(){
     const body=document.getElementById('spBody');
     document.querySelectorAll('.spTab').forEach(t=>t.classList.toggle('on',t.dataset.tab===shopTab));

@@ -2641,6 +2641,15 @@ body.pfd-hidden #compass {
             <option value="0">Classic cockpit</option>
           </select>
         </div>
+        <div class="field">
+          <label for="homeCode">Aircraft code</label>
+          <div style="display:flex;gap:8px"><input id="homeCode" type="text" maxlength="32" placeholder="e.g. FREEBOEING" autocomplete="off" style="flex:1">
+          <button type="button" id="homeCodeBtn" class="spBuy">Redeem</button></div>
+          <div id="homeCodeMsg" role="status" aria-live="polite" style="font-size:12px;margin-top:6px;color:#8ba3c0">FREEBOEING unlocks the 737 and 747, FREE737 the 737, FREE747 the 747.</div>
+        </div>
+        <script>document.addEventListener('DOMContentLoaded',()=>{const b=document.getElementById('homeCodeBtn'),i=document.getElementById('homeCode'),m=document.getElementById('homeCodeMsg');
+          const go=()=>{if(!window.skyRedeem){m.textContent='Still loading, try again in a moment.';return;}const r=window.skyRedeem(i.value);m.textContent=r.text;m.style.color=r.ok?'#4ade80':'#fca5a5';if(r.ok)i.value='';};
+          b.addEventListener('click',go);i.addEventListener('keydown',e=>{if(e.key==='Enter')go();});});</script>
 
       </section>
       <section class="spSec"><h3>Controls</h3>
