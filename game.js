@@ -3190,8 +3190,10 @@ const cbm=tmat(cb,.45);
   }
   function hit(e){
     if(typeof camMode==='undefined'||camMode!==1)return null;
-    const r=canvas.getBoundingClientRect(),px=(e.clientX-r.left)*canvas.width/r.width,py=(e.clientY-r.top)*canvas.height/r.height;
-    const pk=scene.pick(px,py,m=>!!(m.metadata&&m.metadata.hot)&&m.isEnabled());
+    // scene.pick wants render pixels times the hardware scaling level (it divides by it again)
+    const r=canvas.getBoundingClientRect(),hs=(scene.getEngine().getHardwareScalingLevel&&scene.getEngine().getHardwareScalingLevel())||1;
+    const px=(e.clientX-r.left)*canvas.width/r.width*hs,py=(e.clientY-r.top)*canvas.height/r.height*hs;
+    const pk=scene.pick(px,py,m=>!!(m.metadata&&m.metadata.hot)&&m.isEnabled()&&m.isVisible&&(m.visibility>0||!!m.metadata.proxy));
     if(!pk||!pk.hit||!pk.pickedMesh)return null;
     const nm=pk.pickedMesh.name;
     const T=CKI.tex[nm];
@@ -15941,7 +15943,7 @@ const SKY_PREFS=(function(){
         if(!/door|dr\d|fan/i.test(n)&&/tire|tyre|strut|bogie|wheel|^gear(_\d+)?$|_gear(_\d+)?$|(left|right|nose|main)_?gear(_\d+)?$/i.test(n))m.setEnabled(false);}
       // material polish: the converted models come in fully matte
       const seen=new Set();
-      for(const m of res.meshes){m.isPickable=false;m.receiveShadows=true;const mt=m.material;if(!mt||seen.has(mt))continue;seen.add(mt);
+      for(const m of res.meshes){m.isPickable=!!(m.metadata&&m.metadata.hot);m.receiveShadows=true;const mt=m.material;if(!mt||seen.has(mt))continue;seen.add(mt);
         if(mt instanceof BABYLON.PBRMaterial){const glass=mt.alpha<1||/glass|transparent|window/i.test(mt.name);
           mt.roughness=glass?.05:.36;mt.metallic=glass?0:.06;mt.environmentIntensity=.9;
           if(!glass){mt.clearCoat.isEnabled=true;mt.clearCoat.intensity=.55;mt.clearCoat.roughness=.12;}}}
@@ -16077,6 +16079,32 @@ const SKY_PREFS=(function(){
    tools/ac2glb.py (ANIM_OBJ) keeps yokes, columns, throttle levers and rudder pedals as separate meshes named
    ANIM_<part>_<instance>. Each is moved from the live flight controls every frame while its model is shown. */
 const _ckAnims=[];window._ckAnims=_ckAnims;
+const _ckKey=code=>{window.dispatchEvent(new KeyboardEvent('keydown',{code}));window.dispatchEvent(new KeyboardEvent('keyup',{code}));};
+const _ckSnd=k=>{try{window.CKI&&window.CKI.snd&&window.CKI.snd(k);}catch(e){}};
+const _onOff=v=>v?'ON':'OFF';
+const CK_THR_SPEC={label:'THRUST LEVERS · drag up / down · scroll',state:()=>Math.round(plane.throttle*100)+'%',drag:true,act:()=>{},wheel:d=>{plane.throttle=Math.max(0,Math.min(1,plane.throttle+d*.05));}};
+// clickable parts of the real cockpits: names are the FlightGear object names with punctuation removed
+const CK_CTRLS=[
+  {re:/^(lghandle|gearlever|GearStick|GearKnob1)$/,kind:'gear',spec:{label:'LANDING GEAR LEVER',state:()=>plane.gearDown?'DOWN':'UP',act:()=>{_ckSnd('lever');_ckKey('KeyG');}}},
+  {re:/^flaphandle/,kind:'flap',spec:{label:'FLAP LEVER · click / scroll',state:()=>FLAPS[plane.flaps].name,act:()=>{_ckSnd('lever');_ckKey('KeyF');},
+    wheel:d=>{if(faults.has('FLAP_JAM')){showMsg('FLAPS JAMMED');return;}plane.flaps=Math.max(0,Math.min(FLAPS.length-1,plane.flaps+d));_ckSnd('lever');showMsg('FLAPS '+FLAPS[plane.flaps].name);try{updateChips();}catch(e){}}}},
+  {re:/^(sbhandle|speedbrake)$/,kind:'sb',spec:{label:'SPEEDBRAKE LEVER',state:()=>plane.spoilerDeploy>.5?'DEPLOYED':'DOWN',act:()=>{_ckSnd('lever');_ckKey('KeyB');}}},
+  {re:/^(parkbrake\d|ParkingBrake)$/,kind:'park',spec:{label:'PARKING BRAKE',state:()=>plane.parkingBrake?'SET':'OFF',act:()=>{_ckSnd('lever');plane.parkingBrake=!plane.parkingBrake;showMsg('PARKING BRAKE '+(plane.parkingBrake?'SET':'RELEASED'));}}},
+  {re:/^cutoffNo1/,kind:'cut',spec:{label:'ENG 1 FUEL CONTROL',state:()=>AIRSYS.engine.fuelCutoffLeft?'CUTOFF':'RUN',act:()=>{_ckSnd('lever');setFuelCutoff('L');}}},
+  {re:/^cutoffNo2/,kind:'cut',spec:{label:'ENG 2 FUEL CONTROL',state:()=>AIRSYS.engine.fuelCutoffRight?'CUTOFF':'RUN',act:()=>{_ckSnd('lever');setFuelCutoff('R');}}},
+  {re:/^fire[12]$/,kind:'fireL',spec:{label:'ENG 1 FIRE HANDLE · pull',state:()=>ENG.fireHandlesPulled.L?'PULLED':'IN',act:()=>{_ckSnd('lever');toggleFireHandle('L');}}},
+  {re:/^fire[34]$/,kind:'fireR',spec:{label:'ENG 2 FIRE HANDLE · pull',state:()=>ENG.fireHandlesPulled.R?'PULLED':'IN',act:()=>{_ckSnd('lever');toggleFireHandle('R');}}},
+  {re:/^(CMD[AB]|btncmd[lcr]|AP[12]?|apbtn)$/,kind:'btn',spec:{label:'AUTOPILOT',state:()=>AP.master?'ENGAGED':'OFF',act:()=>{_ckSnd('btn');_ckKey('KeyP');}}},
+  {re:/^(HDGSEL\w*|btnhdgsel|btnhdghold|hdgbtn)$/,kind:'btn',spec:{label:'HEADING HOLD',state:()=>_onOff(AP.hdgMode),act:()=>{_ckSnd('btn');AP.hdgMode=!AP.hdgMode;showMsg('HDG '+_onOff(AP.hdgMode));}}},
+  {re:/^btnalthold$/,kind:'btn',spec:{label:'ALTITUDE HOLD',state:()=>_onOff(AP.altMode),act:()=>{_ckSnd('btn');AP.altMode=!AP.altMode;showMsg('ALT HOLD '+_onOff(AP.altMode));}}},
+  {re:/^(LandingLightSwitch|TaxiLightSwitch)$/,kind:'sw',spec:{label:'LANDING / TAXI LIGHTS',act:()=>{_ckSnd('sw');_ckKey('KeyL');}}},
+  {re:/^(StrobeSwitch|lightstrobe|strobeonoff)$/,kind:'sw',spec:{label:'STROBE LIGHTS',state:()=>_onOff(window._strobeOn!==false),act:()=>{_ckSnd('sw');window._strobeOn=!(window._strobeOn!==false);showMsg('STROBES '+_onOff(window._strobeOn));}}},
+  {re:/^(NavLightSwitch|BeaconSwitch|lightbeacon)$/,kind:'sw',spec:{label:'NAV / BEACON LIGHTS',state:()=>_onOff(window._navOn!==false),act:()=>{_ckSnd('sw');window._navOn=!(window._navOn!==false);showMsg('NAV LIGHTS '+_onOff(window._navOn));}}},
+  {re:/^(trimwheel(lh|rh)|TrimWheel|PitchTrimWheel)$/,kind:'trim',spec:{label:'PITCH TRIM WHEEL · scroll',state:()=>(plane.elevTrim>0?'NOSE DN ':'NOSE UP ')+Math.abs(Math.round(plane.elevTrim*100)),act:()=>{_ckSnd('knob');plane.elevTrim=Math.max(-1,plane.elevTrim-.03);},
+    wheel:d=>{_ckSnd('knob');plane.elevTrim=Math.max(-1,Math.min(1,plane.elevTrim-d*.02));}}},
+  {re:/^(BatteryButton|batteryl)$/,kind:'sw',spec:{label:'BATTERY',state:()=>_onOff(ENG.battery),act:()=>{_ckSnd('sw');ENG.battery=!ENG.battery;showMsg('BATTERY '+_onOff(ENG.battery));}}},
+  {re:/^swseatbelt$/,kind:'sw',spec:{label:'SEATBELT SIGNS',state:()=>_onOff(window._belts),act:()=>{_ckSnd('chime');window._belts=!window._belts;showMsg('SEATBELT SIGNS '+_onOff(window._belts));}}},
+];
 function ckAnimSetup(meshes){
   const groups={};
   for(const m of meshes){const g=/^ANIM_([A-Za-z0-9]+?)_(\d+)/.exec(m.name);if(!g||!m.getTotalVertices||!m.getTotalVertices())continue;
@@ -16085,17 +16113,29 @@ function ckAnimSetup(meshes){
   const parts=[];
   for(const g of Object.values(groups)){
     const n=g.name;let kind=null;
-    if(/pedal/i.test(n))kind='pedal';else if(/thr/i.test(n))kind='thr';
+    const cdef=CK_CTRLS.find(c=>c.re.test(n));
+    if(cdef)kind=cdef.kind;
+    else if(/pedal/i.test(n))kind='pedal';else if(/thr/i.test(n))kind='thr';
     else if(/column|pillar/i.test(n)){if(hasYoke.has(g.inst))kind='col';}else if(/yoke/i.test(n))kind='yoke';
     if(!kind)continue;
     // pivot from the part's own bounds (mesh space = file space: x left, y up, z forward)
     let mn=new BABYLON.Vector3(1e9,1e9,1e9),mx=mn.scale(-1);
     for(const m of g.meshes){const b=m.getBoundingInfo().boundingBox;mn=BABYLON.Vector3.Minimize(mn,b.minimum);mx=BABYLON.Vector3.Maximize(mx,b.maximum);}
     const c=mn.add(mx).scale(.5),size=mx.subtract(mn);
-    const piv=kind==='thr'?new BABYLON.Vector3(c.x,mn.y,c.z):c;
+    const piv=(kind==='thr'||kind==='flap'||kind==='sb'||kind==='gear')?new BABYLON.Vector3(c.x,mn.y,c.z):c;
     for(const m of g.meshes){if(m.rotationQuaternion){m.rotation=m.rotationQuaternion.toEulerAngles();m.rotationQuaternion=null;}m.setPivotPoint(piv);m._ckBase={p:m.position.clone(),r:m.rotation.clone()};}
     const left=/left|pedalsl$|^LeftPedal/i.test(n);
-    parts.push({kind,meshes:g.meshes,left,reach:Math.max(.03,Math.min(.09,size.z*.5+.02))});
+    const part={kind,meshes:g.meshes,left,reach:Math.max(.03,Math.min(.09,size.z*.5+.02)),size};
+    parts.push(part);
+    // clickable: thrust levers drag, everything in CK_CTRLS clicks (and scrolls where it makes sense)
+    const spec=kind==='thr'?CK_THR_SPEC:cdef?cdef.spec:null;
+    if(spec&&window.CKI){const names=[];for(const m of g.meshes){m.isPickable=true;m.metadata=Object.assign(m.metadata||{},{hot:true});names.push(m.name);}
+      // small switches are hard to hit: add an invisible, slightly larger pick box around the part
+      try{const pb=BABYLON.MeshBuilder.CreateBox('ckHit_'+n+'_'+g.inst,{width:Math.max(.05,size.x+.02),height:Math.max(.05,size.y+.02),depth:Math.max(.05,size.z+.02)},scene);
+        pb.parent=g.meshes[0].parent;pb.position.copyFrom(c);pb.visibility=0;pb.isPickable=true;pb.metadata={hot:true,proxy:true};pb.doNotSyncBoundingInfo=false;
+        names.push(pb.name);}catch(e){}
+      const wrapped=Object.assign({},spec,{names,meshes:g.meshes,act:(a)=>{part.press=performance.now();try{spec.act(a,part);}catch(e){console.warn('ck ctrl',e);}}});
+      window.CKI.meshSpecs.push(wrapped);}
   }
   if(!parts.length)return null;
   const a={parts,thr:null};_ckAnims.push(a);return a;
@@ -16110,6 +16150,13 @@ scene.onBeforeRenderObservable.add(()=>{
       else if(p.kind==='col'){m.position.z=B.p.z+el*p.reach;}
       else if(p.kind==='pedal'){m.position.z=B.p.z+(p.left?-1:1)*ru*.05;}
       else if(p.kind==='thr'){m.rotation.x=B.r.x+(th-.5)*.7;}
+      else if(p.kind==='gear'){m.position.y=B.p.y+(plane.gearDown?-.035:.035);}
+      else if(p.kind==='flap'){m.rotation.x=B.r.x-plane.flaps/Math.max(1,FLAPS.length-1)*.55;}
+      else if(p.kind==='sb'){m.rotation.x=B.r.x-(plane.spoilerDeploy||0)*.5;}
+      else if(p.kind==='trim'){m.rotation.x=B.r.x+(plane.elevTrim||0)*6;}
+      else if(p.kind==='fireL'||p.kind==='fireR'){const k=p.kind==='fireL'?'L':'R';m.position.z=B.p.z-(ENG.fireHandlesPulled[k]?.04:0);}
+      else if(p.kind==='park'){m.position.z=B.p.z-(plane.parkingBrake?.025:0);}
+      else {const pr=p.press&&performance.now()-p.press<180;m.position.z=B.p.z+(pr?.006:0);}
     }
   }
 });
@@ -16158,7 +16205,7 @@ scene.onBeforeRenderObservable.add(()=>{
       else{put(eic,'eicas');put(left[0],'ndL');put(left[1],'pfdL');put(right[0],'ndR');put(right[1],'pfdR');put(lower,'eicas');}
       // look: the 737's untextured shell is tinted Boeing grey; textured decks just get softer lighting
       const done=new Set(),GREY=new BABYLON.Color3(.48,.52,.56),PANEL=new BABYLON.Color3(.66,.69,.73);
-      for(const m of r.meshes){m.isPickable=false;const mt=m.material;if(!mt||done.has(mt)||/^realScr_/.test(mt.name))continue;done.add(mt);
+      for(const m of r.meshes){m.isPickable=!!(m.metadata&&m.metadata.hot);const mt=m.material;if(!mt||done.has(mt)||/^realScr_/.test(mt.name))continue;done.add(mt);
         if(mt instanceof BABYLON.PBRMaterial){mt.roughness=.62;mt.environmentIntensity=.45;mt.directIntensity=D.grey?.6:.75;
           if(D.grey)mt.albedoColor=mt.albedoColor.multiply(mt.albedoTexture?PANEL:GREY);
           else if(/fuselage\.ac:/i.test(mt.name))mt.albedoColor=mt.albedoColor.multiply(new BABYLON.Color3(.42,.4,.37)); // inside of the nose shell
