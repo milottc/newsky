@@ -15893,6 +15893,7 @@ const SKY_PREFS=(function(){
       await loadLoaders();
       const root=rootFor(id);if(!root)throw new Error('no root for '+id);
       const res=await BABYLON.SceneLoader.ImportMeshAsync('',REAL[id].replace(/[^/]+$/,''),REAL[id].split('/').pop(),scene);
+      try{ckAnimSetup(res.meshes);}catch(e){console.warn('cabin anim',e);}
       const glbRoot=res.meshes[0];
       // measure both airframes in the root's local frame (temporarily put root at identity)
       const saved={p:root.position.clone(),r:root.rotation.clone(),q:root.rotationQuaternion?root.rotationQuaternion.clone():null,s:root.scaling.clone(),par:root.parent};
@@ -16061,6 +16062,47 @@ const SKY_PREFS=(function(){
   });
 })();
 
+/* ===== Moving cockpit controls on the converted FlightGear models =====
+   tools/ac2glb.py (ANIM_OBJ) keeps yokes, columns, throttle levers and rudder pedals as separate meshes named
+   ANIM_<part>_<instance>. Each is moved from the live flight controls every frame while its model is shown. */
+const _ckAnims=[];window._ckAnims=_ckAnims;
+function ckAnimSetup(meshes){
+  const groups={};
+  for(const m of meshes){const g=/^ANIM_([A-Za-z0-9]+?)_(\d+)/.exec(m.name);if(!g||!m.getTotalVertices||!m.getTotalVertices())continue;
+    (groups[g[1]+'_'+g[2]]||(groups[g[1]+'_'+g[2]]={name:g[1],inst:g[2],meshes:[]})).meshes.push(m);}
+  const hasYoke=new Set(Object.values(groups).filter(g=>/yoke/i.test(g.name)).map(g=>g.inst));
+  const parts=[];
+  for(const g of Object.values(groups)){
+    const n=g.name;let kind=null;
+    if(/pedal/i.test(n))kind='pedal';else if(/thr/i.test(n))kind='thr';
+    else if(/column|pillar/i.test(n)){if(hasYoke.has(g.inst))kind='col';}else if(/yoke/i.test(n))kind='yoke';
+    if(!kind)continue;
+    // pivot from the part's own bounds (mesh space = file space: x left, y up, z forward)
+    let mn=new BABYLON.Vector3(1e9,1e9,1e9),mx=mn.scale(-1);
+    for(const m of g.meshes){const b=m.getBoundingInfo().boundingBox;mn=BABYLON.Vector3.Minimize(mn,b.minimum);mx=BABYLON.Vector3.Maximize(mx,b.maximum);}
+    const c=mn.add(mx).scale(.5),size=mx.subtract(mn);
+    const piv=kind==='thr'?new BABYLON.Vector3(c.x,mn.y,c.z):c;
+    for(const m of g.meshes){if(m.rotationQuaternion){m.rotation=m.rotationQuaternion.toEulerAngles();m.rotationQuaternion=null;}m.setPivotPoint(piv);m._ckBase={p:m.position.clone(),r:m.rotation.clone()};}
+    const left=/left|pedalsl$|^LeftPedal/i.test(n);
+    parts.push({kind,meshes:g.meshes,left,reach:Math.max(.03,Math.min(.09,size.z*.5+.02))});
+  }
+  if(!parts.length)return null;
+  const a={parts,thr:null};_ckAnims.push(a);return a;
+}
+scene.onBeforeRenderObservable.add(()=>{
+  if(!_ckAnims.length||camMode!==1)return;
+  const el=plane.elevator||0,ai=plane.aileron||0,ru=plane.rudder||0,th=plane.throttle||0;
+  for(const a of _ckAnims)for(const p of a.parts){
+    const m0=p.meshes[0];if(!m0.isEnabled(true)||m0.isDisposed())continue;
+    for(const m of p.meshes){const B=m._ckBase;if(!B)continue;
+      if(p.kind==='yoke'){m.position.z=B.p.z+el*p.reach;m.rotation.z=B.r.z-ai*.75;}
+      else if(p.kind==='col'){m.position.z=B.p.z+el*p.reach;}
+      else if(p.kind==='pedal'){m.position.z=B.p.z+(p.left?-1:1)*ru*.05;}
+      else if(p.kind==='thr'){m.rotation.x=B.r.x+(th-.5)*.7;}
+    }
+  }
+});
+
 /* ===== Real flight decks (FlightGear cockpits, GPLv2, see assets/models/README.md) =====
    Loaded in the background the first time a deck is needed. While shown, the code-built cockpit is hidden and the
    sim's live PFD / ND / EICAS canvases are mapped onto the model's screens. The 737-800 deck is the default for
@@ -16083,6 +16125,7 @@ const SKY_PREFS=(function(){
         await new Promise((res,rej)=>{const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/babylonjs-loaders@'+v+'/babylonjs.loaders.min.js';sc.onload=res;sc.onerror=rej;document.head.appendChild(sc);});
       }
       const r=await BABYLON.SceneLoader.ImportMeshAsync('','assets/models/',D.file,scene);
+      try{ckAnimSetup(r.meshes);}catch(e){console.warn('deck anim',e);}
       const holder=new BABYLON.TransformNode('realDeck_'+key,scene);r.meshes[0].parent=holder;holder.parent=aircraftRoot;
       holder.computeWorldMatrix(true);r.meshes.forEach(m=>m.computeWorldMatrix(true));
       const inv=holder.getWorldMatrix().clone().invert();

@@ -49,7 +49,7 @@ def parse_ac(fn):
     toks = open(fn, encoding='latin-1').read().splitlines()
     mats, i = [], 1
     objs = []
-    def read_obj(i, parent_m):
+    def read_obj(i, parent_m, ppath=''):
         assert toks[i].startswith('OBJECT'), toks[i]
         o = {'name': '', 'tex': None, 'texrep': (1, 1), 'texoff': (0, 0), 'loc': (0, 0, 0), 'rot': None, 'verts': [], 'surfs': []}
         i += 1
@@ -94,11 +94,12 @@ def parse_ac(fn):
                 m = mat_mul(trans(*o['loc']), m)
                 world = mat_mul(parent_m, m)
                 o['world'] = world
+                o['path'] = ppath + '/' + o['name']
                 objs.append(o)
                 for _ in range(int(l.split()[1])):
                     while i < len(toks) and not toks[i].startswith('OBJECT'): i += 1
                     if i >= len(toks): break
-                    i = read_obj(i, world)
+                    i = read_obj(i, world, o['path'])
                 return i
         return i
     while i < len(toks) and toks[i].startswith('MATERIAL'):
@@ -124,8 +125,13 @@ if os.environ.get('CROP_AC'):
     CROP[os.environ['CROP_AC']] = lambda P,z=_zmin,x=_xmax: all(p[2] < z for p in P) or any(abs(p[0]) > x for p in P)
 textures = {}
 
+# ANIM_OBJ=<regex>: objects (and their children) whose name matches stay separate meshes named
+# ANIM_<name>_<instance>:<material>, so the game can move them (yokes, throttles, pedals)
+ANIM = re.compile(os.environ['ANIM_OBJ']) if os.environ.get('ANIM_OBJ') else None
+ANIM_N = [0]
 def add_ac(fn, place_m):
     mats, objs = parse_ac(fn)
+    ANIM_N[0] += 1; inst = ANIM_N[0]
     base = os.path.dirname(fn)
     for o in objs:
         if SKIP and SKIP.search(o['name']): continue
@@ -147,7 +153,12 @@ def add_ac(fn, place_m):
             if (flags & 0xF) != 0 or len(refs) < 3: continue
             mt = mats[mi] if mi < len(mats) else {'name': 'x', 'rgb': [.8, .8, .8], 'emis': [0, 0, 0], 'trans': 0}
             two = bool(flags & 0x20)
-            key = (screen or (os.path.basename(fn) + ':' + mt['name']), texfile, two)
+            anim = None
+            if ANIM and not screen:
+                for seg in o.get('path', '/' + o['name']).split('/'):
+                    if seg and ANIM.search(seg): anim = re.sub(r'[^A-Za-z0-9]+', '', seg); break
+            if anim: key = ('ANIM_%s_%d:%s' % (anim, inst, mt['name']), texfile, two)
+            else: key = (screen or (os.path.basename(fn) + ':' + mt['name']), texfile, two)
             g = groups.setdefault(key, {'pos': [], 'nrm': [], 'uv': [], 'mat': mt, 'tex': texfile, 'two': two})
             P = [V[r[0]] for r in refs]
             if crop and crop(P): continue
