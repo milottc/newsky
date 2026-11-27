@@ -11604,7 +11604,7 @@ function respawn(){
   const SAVE='bf737_career_v4';
 
   const DEF={
-    money:999999999000, xp:0, level:1,
+    money:999000, xp:0, level:1,
     upgrades:{fleet:0, engines:0, comfort:0, safety:0},
     lessonsCompleted:{},
     redeemedCodes:{},
