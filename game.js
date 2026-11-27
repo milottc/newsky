@@ -15642,9 +15642,14 @@ const SKY_PREFS=(function(){
    GPLv2, see assets/models/README.md). The code-built gear (animated) and lights stay; everything else of
    the code-built airframe is hidden once the model is in. If loading fails, the code-built plane remains. */
 (function(){
-  const REAL={'737':'assets/models/b738.glb',b777:'assets/models/b773.glb',b747:'assets/models/b744.glb',dc10:'assets/models/dc10.glb'};
+  const REAL={'737':'assets/models/b738.glb',b777:'assets/models/b773.glb',b747:'assets/models/b744.glb',dc10:'assets/models/dc10.glb',
+    a380:'assets/models/a380.glb',dc9:'assets/models/b717.glb',md83:'assets/models/b717.glb',b717:'assets/models/b717.glb',cessna:'assets/models/c172.glb'};
   // Flightradar24 files face -z (turn them around); files from tools/ac2glb.py already face the sim's +z
-  const NOSE_FWD={dc10:true};
+  const NOSE_FWD={dc10:true,dc9:true,md83:true,b717:true,cessna:true};
+  // DC-9 family shares the 717 airframe: stretch only the length to each type's fuselage, keep the cross-section
+  const STRETCH={dc9:true,md83:true,b717:true};
+  // models that bring their own (fixed) landing gear: hide the code-built gear as well
+  const OWN_GEAR={cessna:true};
   const state={};let loaderP=null;
   const loadLoaders=()=>loaderP||(loaderP=new Promise((res,rej)=>{
     if(BABYLON.SceneLoader&&BABYLON.SceneLoader.IsPluginForExtensionAvailable&&BABYLON.SceneLoader.IsPluginForExtensionAvailable('.glb')){res();return;}
@@ -15674,10 +15679,11 @@ const SKY_PREFS=(function(){
       if(!procF||!glbF)throw new Error('fuselage not found');
       const pb=procF.getBoundingInfo().boundingBox,gb=glbF.getBoundingInfo().boundingBox;
       const k=(pb.extendSizeWorld.z/gb.extendSizeWorld.z);
+      const kx=STRETCH[id]?(pb.extendSizeWorld.x/gb.extendSizeWorld.x):k;
       const pc=pb.centerWorld,gc=gb.centerWorld;
       const holder=new BABYLON.TransformNode('realAC_'+id,scene);
       glbRoot.parent=holder;
-      if(NOSE_FWD[id]){holder.scaling.setAll(k);holder.position.set(pc.x-gc.x*k,pc.y-gc.y*k,pc.z-gc.z*k);}
+      if(NOSE_FWD[id]){holder.scaling.set(kx,kx,k);holder.position.set(pc.x-gc.x*kx,pc.y-gc.y*kx,pc.z-gc.z*k);}
       else{holder.rotation.y=Math.PI;                  // model nose points to -z; the sim's nose is +z
         holder.scaling.setAll(k);holder.position.set(pc.x+gc.x*k,pc.y-gc.y*k,pc.z+gc.z*k);}
       holder.parent=root;
@@ -15690,11 +15696,12 @@ const SKY_PREFS=(function(){
           mt.roughness=glass?.05:.36;mt.metallic=glass?0:.06;mt.environmentIntensity=.9;
           if(!glass){mt.clearCoat.isEnabled=true;mt.clearCoat.intensity=.55;mt.clearCoat.roughness=.12;}}}
       // hide the code-built airframe, keep animated gear and light halos / emitters
-      const gearNodes=id==='737'?Object.values(gearPivots):[root.metadata&&root.metadata.gearGroup].filter(Boolean);
+      const gearNodes=OWN_GEAR[id]?[]:id==='737'?Object.values(gearPivots):[root.metadata&&root.metadata.gearGroup].filter(Boolean);
       const keep=m=>gearNodes.some(g=>m.isDescendantOf(g))||/halo|Halo|^llg|^llcone|exhGlow|fireEm|smokeEm|TaxiL|_beacon|^nv|^st[LRT]|^bc/i.test(m.name);
       const hidden=[];
       for(const m of root.getChildMeshes()){if(m.isDescendantOf(holder)||keep(m))continue;if(m.isVisible){m.isVisible=false;hidden.push(m);}}
       st.holder=holder;st.hidden=hidden;st.loading=false;st.ok=true;st.meshes=res.meshes;st.fus=glbF;st.liv=-1;st.on=true;st.id=id;
+      st.k=k;st.kx=kx;
       try{window._refreshShadows&&window._refreshShadows();}catch(e){}
       console.info('real model loaded',id,'scale',k.toFixed(3),'hid',hidden.length);
     }catch(e){console.warn('real model failed, keeping code-built',id,e);st.loading=false;st.failed=true;}
@@ -15769,7 +15776,24 @@ const SKY_PREFS=(function(){
     if(want&&REAL[id]&&!state[id])load(id);
     for(const k in state){const st=state[k],h=st.holder;if(!h)continue;
       if(st.on!==want)setOn(st,want);
-      const on=want&&camMode!==1;if(h.isEnabled()!==on)h.setEnabled(on);
+      const realCabin=k==='cessna'&&SKY_PREFS.realCockpit;
+      const on=want&&(camMode!==1||(realCabin&&id==='cessna'));if(h.isEnabled()!==on)h.setEnabled(on);
+      if(k==='cessna'&&id==='cessna'){
+        const inside=want&&realCabin&&camMode===1;
+        if(inside){if(!st.eye){
+            // c172p captain eye in the model's own space, carried through the real transforms into the aircraft frame
+            const FG=new BABYLON.Vector3(-.21,.235,-.36);
+            // FG is already in sim axes (post glTF handedness flip), so it lives in the holder's frame
+            h.computeWorldMatrix(true);
+            const w=BABYLON.Vector3.TransformCoordinates(FG,h.getWorldMatrix());
+            const inv=aircraftRoot.computeWorldMatrix(true).clone().invert();
+            const e=BABYLON.Vector3.TransformCoordinates(w,inv);
+            st.eye=[e.x,e.y,e.z];st.origEye=window._ckEye;}
+          window._ckEye=st.eye;
+          for(const m of scene.meshes)if(m.name.startsWith('ckf_cessna_')&&m.isEnabled())m.setEnabled(false);
+          for(const m of st.hidden)if(m.isVisible)m.isVisible=false;}
+        else if(st.eye&&window._ckEye===st.eye){window._ckEye=st.origEye;}
+      }
       if(want&&st.liv!==curLiv)try{paint(st);}catch(e){}}
   });
 })();
