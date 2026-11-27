@@ -101,6 +101,9 @@ const KS_FIELD=ksXZ(37.6165,-122.3790);  /* middle of the airfield, between the 
 // Entries marked "approx" are from memory and must be verified against
 // current AIP/AIS before any operational use.
 const RUNWAYS = Object.freeze({
+  // Emergency-training airports
+  RKJB:{hdg:10,len:2800,wid:45},VAAH:{hdg:230,len:3505,wid:45},VOCL:{hdg:100,len:2860,wid:45},VOML:{hdg:240,len:2450,wid:45},
+  RJGG:{hdg:340,len:2740,wid:45},MUHA:{hdg:60,len:4000,wid:45},SKRG:{hdg:10,len:3500,wid:45},URRR:{hdg:220,len:2500,wid:45},LCLK:{hdg:220,len:2980,wid:45},
   // Canada — Ontario
   CYYZ:{hdg:60,len:3389,wid:61},CYTZ:{hdg:80,len:1216,wid:30},
   CYKF:{hdg:140,len:1524,wid:46},CYOO:{hdg:120,len:1768,wid:46},
@@ -254,6 +257,9 @@ const RUNWAYS = Object.freeze({
 });
 
 const LOCS = Object.freeze({
+  // Emergency-training airports
+  RKJB:{lat:34.9914,lon:126.3828,elev:16},VAAH:{lat:23.0772,lon:72.6347,elev:55},VOCL:{lat:11.1368,lon:75.9553,elev:104},VOML:{lat:12.9613,lon:74.8901,elev:103},
+  RJGG:{lat:35.2550,lon:136.9244,elev:15},MUHA:{lat:22.9892,lon:-82.4091,elev:64},SKRG:{lat:6.1645,lon:-75.4231,elev:2142},URRR:{lat:47.2582,lon:39.8181,elev:85},LCLK:{lat:34.8751,lon:33.6249,elev:2},
   // North America — Canada — Ontario
   CYYZ:{lat:43.6772,lon:-79.6306,elev:173},  // Toronto Pearson
   CYTZ:{lat:43.6275,lon:-79.3962,elev:77},   // Toronto Billy Bishop (Island)
@@ -3467,7 +3473,8 @@ const FAULTS={
   RADALT_FAIL:{sev:1,label:'RADIO ALT FAIL',reset:'LATCHED'},
   COCKPIT_SMOKE:{sev:3,label:'SMOKE IN COCKPIT',reset:'LATCHED'},
   MICROBURST:{sev:3,label:'MICROBURST · WIND SHEAR',reset:'LATCHED'},LIGHTNING:{sev:2,label:'LIGHTNING STRIKE',reset:'LATCHED'},ASH:{sev:2,label:'VOLCANIC ASH',reset:'LATCHED'},FUEL_IMBAL:{sev:2,label:'FUEL IMBALANCE',reset:'LATCHED'},DUAL_ENG:{sev:3,label:'DUAL ENGINE FAILURE',reset:'LATCHED'},THR_STUCK:{sev:2,label:'THROTTLE STUCK',reset:'LATCHED'},DECOMP:{sev:3,label:'RAPID DECOMPRESSION',reset:'LATCHED'},CHAOS:{sev:1,label:'CHAOS MODE',reset:'LATCHED'},
-  COLLISION:{sev:3,label:'TRAFFIC COLLISION COURSE',reset:'LATCHED'}
+  COLLISION:{sev:3,label:'TRAFFIC COLLISION COURSE',reset:'LATCHED'},
+  HYD_TOTAL:{sev:3,label:'HYD SYS ALL · PRESS LO',reset:'LATCHED'}
 };
 
 class FaultController{
@@ -3711,6 +3718,7 @@ function resetAircraft(lat,lon,elev){
     }
     if(sparksPS&&sparksPS.isStarted())sparksPS.stop();
   }catch(e){}
+  try{if(window._emOnReset)window._emOnReset();}catch(e){console.warn('emergency reset',e);}
   updateSurfaceVisuals(1/60);updateChips();
   aircraftRoot.position.copyFrom(plane.pos);
   aircraftRoot.rotationQuaternion=plane.quat;
@@ -4070,6 +4078,7 @@ function physicsStep(dt){
   plane.aileron+=(input.roll-plane.aileron)*k;
   plane.rudder+=(input.yaw-plane.rudder)*(SET.rudder==='realistic'?1-Math.exp(-1.5*dt):k);
   if(faults.has('ELEV_JAM')){if(plane._ej===undefined)plane._ej=plane.elevator;plane.elevator=plane._ej;}else plane._ej=undefined;
+  if(faults.has('HYD_TOTAL')){plane.elevator*=.06;plane.aileron*=.06;plane.rudder*=.06;}
   const effElev=BABYLON.Scalar.Clamp(plane.elevator+plane.elevTrim*.6,-1.5,1.5);
   const effAil=BABYLON.Scalar.Clamp(plane.aileron+plane.ailTrim*.6,-1.5,1.5);
   const effRud=BABYLON.Scalar.Clamp(plane.rudder+plane.rudTrim*.6,-1.5,1.5);
@@ -13566,6 +13575,8 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
   try{window.liveryOthers();}catch(e){console.error(e);}
   window._modelRoots=modelRoots;window._DRESS=DRESS;window._FLEET=FLEET;
   setActiveAircraft(fleet().model);
+  window._emUseAircraft=function(id,isIndex){const i=isIndex?id:FLEET.findIndex(f=>f.id===id);if(i<0||!FLEET[i])return null;
+    const prev=C.upgrades.fleet;C.upgrades.fleet=i;try{setActiveAircraft(FLEET[i].model);renderHUD();}catch(e){}return prev;};
   window.__flyTo=function(id){const i=typeof id==='number'?id:FLEET.findIndex(f=>f.id===id);if(i<0||!FLEET[i])return 'unknown aircraft';
     C.upgrades.fleet=i;C.maxFleet=Math.max(C.maxFleet,i);save();setActiveAircraft(FLEET[i].model);
     try{contractList=genContractList();renderShop();renderHUD();renderContracts();}catch(e){console.warn(e);}
@@ -16181,6 +16192,362 @@ scene.onBeforeRenderObservable.add(()=>{
     else if(hidInterior){hidInterior=false;if(camMode===1)interiorRoot.setEnabled(true);}
   });
 })();
+/* ===== Emergency training mode =====
+   Scenarios modelled on the emergencies crews faced in real accidents and incidents. Each one sets up the aircraft,
+   airport, weather and time of day, injects the failures at the right moment, tracks a short checklist of goals and
+   ends with a debrief that explains what happened for real and what the industry learned. Events caused by attacks,
+   shoot-downs, bombs or deliberate pilot action are left out on purpose: there is nothing for a crew to train for. */
+(function(){
+  const KT=1.94384,FT=3.28084;
+  const kias=()=>plane.speed*KT;
+  const agl=()=>{try{return computeAGL();}catch(e){return plane.pos.y*FT;}};
+  const altFt=()=>plane.pos.y*FT;
+  const bankDeg=()=>{try{return Math.abs(plane.quat.toEulerAngles().z*180/Math.PI);}catch(e){return 0;}};
+  const pitchDeg=()=>{try{return -plane.quat.toEulerAngles().x*180/Math.PI;}catch(e){return 0;}};
+  const bothOut=()=>{ENG.L.state='SHUTDOWN';ENG.R.state='SHUTDOWN';};
+  const atc=t=>{try{speak(t,1.05,{who:'atc'});}catch(e){}};
+  const landed=s=>s.touch&&plane.onGround&&plane.speed<3&&!plane.crashed;
+  const onRunway=()=>{const rw=RUNWAYS[currentLocation.code];if(!rw)return false;const h=rw.hdg*Math.PI/180,dx=Math.sin(h),dz=-Math.cos(h);
+    const al=plane.pos.x*dx+plane.pos.z*dz,lat=-plane.pos.x*dz+plane.pos.z*dx;return Math.abs(al)<=rw.len/2+30&&Math.abs(lat)<=rw.wid/2+12;};
+  const fromThreshold=()=>{const rw=RUNWAYS[currentLocation.code];if(!rw)return 0;const h=rw.hdg*Math.PI/180;return plane.pos.x*Math.sin(h)-plane.pos.z*Math.cos(h)+rw.len/2;};
+  // common goals
+  const G={
+    landRwy:{label:'Land on the runway and stop',check:s=>landed(s)&&onRunway()},
+    landAny:{label:'Put it down under control (any surface) and stop',check:s=>landed(s)&&s.touchFpm<900},
+    gearDown:{label:'Landing gear down for touchdown',check:s=>s.touch?s.touchGear>.9:plane.gearPos>.9,keep:true},
+    softTouch:{label:'Touch down under 600 ft/min',check:s=>s.touch&&s.touchFpm<600,keep:true},
+    noStall:{label:'No stall',check:s=>!s.stalled,keep:true,fail:s=>s.stalled},
+    mayday:{label:'Declare MAYDAY',check:s=>s.mayday},
+  };
+  const hold=(sec,label)=>({label:label||('Keep control for '+sec+' s'),check:s=>s.okT>=sec});
+
+  const S=[
+  // ---------------- 2020–2026 ----------------
+  {id:'ac8646',era:'2020–2026',flight:'Air Canada Express 8646',date:'22 Mar 2026',type:'Bombardier CRJ-900',fleet:'crj9',apt:'KLGA',start:'final',wx:'clear',tod:'night',
+   what:'Arriving at New York LaGuardia at night, the CRJ-900 collided with an airport fire truck on the runway during landing. The investigation (NTSB / TSB) is still under way.',
+   drill:'A vehicle enters the runway as you cross the threshold area. Go around, climb above 1,500 ft, then fly a new approach and land.',
+   lesson:'Runway incursions are stopped by layers: ATC, runway status lights, and a crew ready to go around at any moment, even very low.',
+   events:[{when:s=>agl()<260&&!plane.onGround,do:s=>{s.incursion=true;showMsg('⚠ VEHICLE ON RUNWAY · GO AROUND',5000);atc('Go around, go around, vehicle on the runway');try{masterWarn(false);}catch(e){}}}],
+   tick:s=>{if(s.incursion&&!s.goneAround&&plane.onGround&&!s.ga1500){s.fail='Touched down with a vehicle on the runway.';}
+     if(s.incursion&&agl()>1500)s.ga1500=true;},
+   goals:[{label:'Go around above 1,500 ft',check:s=>s.ga1500},G.landRwy,G.softTouch]},
+  {id:'ai171',era:'2020–2026',flight:'Air India 171',date:'12 Jun 2025',type:'Boeing 787-8',fleet:'b787',apt:'VAAH',start:'takeoff',wx:'clear',tod:'noon',
+   what:'Seconds after takeoff from Ahmedabad both engines lost thrust. The preliminary report found both fuel control switches had moved to CUTOFF; the crew returned them to RUN and the RAT deployed, but there was not enough height to recover. The final report is still pending.',
+   drill:'Both engines fail just after lift-off. Lower the nose at once to keep flying speed, keep the wings level and make the best forced landing straight ahead.',
+   lesson:'With both engines out at low height, the only thing that matters is airspeed: pitch for best glide immediately and land ahead under control.',
+   events:[{when:s=>!plane.onGround&&agl()>380,do:s=>{bothOut();faults.inject('FLAMEOUT');showMsg('⚠ DUAL ENGINE FAILURE',5000);try{masterWarn(true);}catch(e){}}}],
+   goals:[{label:'Keep above 150 kt until flare',check:s=>s.minGlideKt>=145,keep:true},G.noStall,G.landAny]},
+  {id:'jeju2216',era:'2020–2026',flight:'Jeju Air 2216',date:'29 Dec 2024',type:'Boeing 737-800',fleet:'b737',apt:'RKJB',start:'final',wx:'clear',tod:'morning',
+   what:'On approach to Muan the 737 struck a flock of birds and went around. It landed back without landing gear deployed, overran and hit a concrete-cored localizer embankment beyond the runway end.',
+   drill:'A bird strike takes out engine 2 and makes engine 1 surge on short final. Go around, fly the circuit on reduced power, get the gear down (alternate extension if needed) and land.',
+   lesson:'After a bird strike, slow down the decision-making: one engine flies the aircraft, a checklist finds the gear, and runway-end safety areas must be free of rigid obstacles.',
+   events:[{when:s=>agl()<700&&!plane.onGround,do:s=>{faults.inject('BIRD_STRIKE');faults.inject('ENG_SURGE');showMsg('⚠ BIRD STRIKE · ENG 2 FAILED · ENG 1 SURGING',5000);}}],
+   goals:[{label:'Go around after the bird strike',check:s=>s.maxAglAfter>1200},G.gearDown,G.landRwy]},
+  {id:'sj182',era:'2020–2026',flight:'Sriwijaya Air 182',date:'9 Jan 2021',type:'Boeing 737-500',fleet:'b737',apt:'WIII',start:'cruise',wx:'rain',tod:'golden',alt:10900,kt:250,
+   what:'Climbing out of Jakarta, a faulty autothrottle left the left thrust lever at climb power while the right one rolled back. The growing thrust asymmetry rolled the 737 into a steep left bank that was not recognised in time.',
+   drill:'One engine silently rolls back to idle. Spot the yaw and roll, level the wings, match the thrust and keep flying for two minutes.',
+   lesson:'Monitor the automation: an unexpected roll means hands on, wings level first, then find the cause on the engine display.',
+   events:[{when:s=>s.t>8,do:s=>{s.asym=true;AP.master=false;showMsg('AUTOPILOT DISCONNECT',3000);}}],
+   tick:s=>{if(s.asym){engFactor.R=.08;plane.angVel.z+=.0009;}},
+   goals:[{label:'Never exceed 45° of bank',check:s=>s.maxBank<45,keep:true,fail:s=>s.maxBank>=60},G.noStall,hold(120,'Stay in control for 2 minutes')]},
+  {id:'ix1344',era:'2020–2026',flight:'Air India Express 1344',date:'7 Aug 2020',type:'Boeing 737-800',fleet:'b737',apt:'VOCL',start:'final',wx:'storm',tod:'night',
+   what:'Landing at Kozhikode’s table-top runway in heavy rain with a tailwind, the 737 touched down far along the runway, overran, fell into a gorge and broke apart.',
+   drill:'Night, heavy rain and a short table-top runway. Touch down in the first third, or go around. Stop on the runway.',
+   lesson:'An unstable or long landing on a wet short runway is a go-around, every time. The touchdown point decides whether you can stop.',
+   goals:[{label:'Touch down in the first third of the runway',check:s=>s.touch&&s.touchDist<RUNWAYS.VOCL.len/3,keep:true},G.landRwy,G.softTouch]},
+  {id:'pk8303',era:'2020–2026',flight:'PIA 8303',date:'22 May 2020',type:'Airbus A320',fleet:'a320',apt:'OPKC',start:'final',wx:'clear',tod:'noon',high:330,fast:1.35,gearUp:true,
+   what:'The A320 arrived at Karachi far too high and fast and attempted to land with the gear up. Both engines scraped the runway; on the go-around they failed and the aircraft crashed short of the runway.',
+   drill:'You are high and fast with the gear up. Don’t force it: go around, fly a stable approach and land with gear down.',
+   lesson:'Stabilised-approach criteria exist so that a bad approach becomes a go-around instead of a forced landing.',
+   tick:s=>{if(plane.onGround&&plane.gearPos<.5&&!s.scraped){s.scraped=true;s.fail='Touched down with the landing gear up.';}},
+   goals:[{label:'Go around',check:s=>s.maxAglAfter>1500},G.gearDown,G.landRwy,G.softTouch]},
+  // ---------------- 2010–2019 ----------------
+  {id:'et302',era:'2010–2019',flight:'Ethiopian Airlines 302',date:'10 Mar 2019',type:'Boeing 737 MAX 8',fleet:'b737',apt:'HAAB',start:'takeoff',wx:'clear',tod:'morning',stab:true,
+   what:'After takeoff from Addis Ababa a faulty angle-of-attack sensor triggered MCAS, which repeatedly trimmed the nose down. The crew used the stab trim cutout, but at high speed they could not move the trim back by hand.',
+   drill:'After flap retraction the AOA sensor fails and the stabiliser trims nose-down. Counter with trim, hit STAB TRIM CUTOUT, reduce thrust and keep climbing.',
+   lesson:'Runaway trim: control the pitch, cut out the trim, and keep the speed under control so manual trim stays usable.',
+   events:[{when:s=>!plane.onGround&&agl()>900,do:s=>{faults.inject('AOA_FAIL');faults.inject('TRIM_RUNAWAY');showMsg('⚠ STICK SHAKER · AOA DISAGREE · TRIM RUNNING',5000);}}],
+   goals:[{label:'STAB TRIM CUTOUT',check:s=>s.cutout},{label:'Climb above 8,000 ft AGL',check:()=>agl()>8000},{label:'Stay below 340 kt',check:s=>s.maxKt<340,keep:true}]},
+  {id:'jt610',era:'2010–2019',flight:'Lion Air 610',date:'29 Oct 2018',type:'Boeing 737 MAX 8',fleet:'b737',apt:'WIII',start:'takeoff',wx:'cloudy',tod:'morning',stab:true,
+   what:'Departing Jakarta, an incorrectly calibrated AOA sensor made MCAS trim the nose down more than 20 times. The crew fought it with electric trim until they lost control over the Java Sea.',
+   drill:'The same MCAS failure: repeated nose-down trim after flap retraction. Run the runaway-stabiliser drill.',
+   lesson:'A repeating automatic trim input is a runaway: cut it out early instead of fighting it.',
+   events:[{when:s=>!plane.onGround&&agl()>1500,do:s=>{faults.inject('AOA_FAIL');faults.inject('TRIM_RUNAWAY');showMsg('⚠ IAS DISAGREE · ALT DISAGREE · TRIM RUNNING',5000);}}],
+   goals:[{label:'STAB TRIM CUTOUT',check:s=>s.cutout},{label:'Climb above 6,000 ft AGL',check:()=>agl()>6000},G.noStall]},
+  {id:'cu972',era:'2010–2019',flight:'Cubana de Aviación 972',date:'18 May 2018',type:'Boeing 737-200',fleet:'b737',apt:'MUHA',start:'takeoff',wx:'clear',tod:'noon',
+   what:'Just after takeoff from Havana the leased 737 climbed at an excessive pitch angle, stalled and crashed. Weight-and-balance errors were found in the investigation.',
+   drill:'The aircraft is badly mis-trimmed nose-up after lift-off. Push, retrim and avoid the stall; climb to 3,000 ft.',
+   lesson:'Wrong weight or trim data shows up as an aircraft that wants to over-rotate: pitch attitude beats everything else.',
+   events:[{when:s=>!plane.onGround&&agl()>60,do:s=>{plane.elevTrim=-.85;showMsg('⚠ PITCH UP · STALL WARNING',4000);}}],
+   goals:[{label:'Keep pitch below 25°',check:s=>s.maxPitch<25,keep:true},G.noStall,{label:'Climb to 3,000 ft AGL',check:()=>agl()>3000}]},
+  {id:'sov703',era:'2010–2019',flight:'Saratov Airlines 703',date:'11 Feb 2018',type:'Antonov An-148',fleet:'e190',apt:'UUDD',start:'cruise',wx:'snow',tod:'golden',alt:5500,kt:260,sub:'Embraer E190 stands in for the An-148',
+   what:'Climbing out of Moscow Domodedovo with the pitot heaters off, the airspeed indications iced up and disagreed. The crew reacted to the false readings and descended into the ground.',
+   drill:'Your airspeed indicator freezes in icing. Ignore it: fly a known pitch and power (about 5° nose-up, 80% power) and hold altitude for 2 minutes.',
+   lesson:'Unreliable airspeed: pitch + power = performance. Trust attitude, not one frozen instrument.',
+   events:[{when:s=>s.t>10,do:s=>{faults.inject('PITOT_BLOCK');faults.inject('ICING');showMsg('⚠ IAS DISAGREE',4000);}}],
+   goals:[{label:'Stay within 1,000 ft of start altitude',check:s=>s.maxDev<1000,keep:true,fail:s=>s.maxDev>2500},G.noStall,hold(120,'Hold it for 2 minutes')]},
+  {id:'lmi2933',era:'2010–2019',flight:'LaMia 2933',date:'28 Nov 2016',type:'Avro RJ85',fleet:'e190',apt:'SKRG',start:'cruise',wx:'cloudy',tod:'night',alt:12000,kt:220,fuelKg:420,sub:'Embraer E190 stands in for the RJ85',
+   what:'The charter flight to Medellín was planned with no fuel reserve. It ran out of fuel holding near the airport, and the crew declared an emergency too late.',
+   drill:'Fuel is almost gone. Declare MAYDAY now, get priority and land before the engines stop.',
+   lesson:'Declare fuel emergencies early. A MAYDAY costs nothing; waiting costs everything.',
+   goals:[{label:'Declare MAYDAY within 30 s',check:s=>s.mayday&&s.maydayT<=30,keep:true},G.landAny]},
+  {id:'fz981',era:'2010–2019',flight:'Flydubai 981',date:'19 Mar 2016',type:'Boeing 737-800',fleet:'b737',apt:'URRR',start:'final',wx:'storm',tod:'night',
+   what:'After a long hold in gusty winds at Rostov-on-Don, the crew made a second go-around at night. During the climb a large nose-down input and trim led to a steep dive into the runway area; spatial disorientation was a factor.',
+   drill:'Windshear on short final at night. Go around: firm pitch-up, full thrust, and keep climbing. Watch the attitude indicator, not your senses.',
+   lesson:'In a night go-around the body lies: the acceleration feels like pitching up. Fly the attitude indicator.',
+   events:[{when:s=>agl()<900&&!plane.onGround,do:s=>{faults.inject('MICROBURST');showMsg('⚠ WINDSHEAR AHEAD · GO AROUND',5000);atc('Windshear alert, go around');}}],
+   goals:[{label:'Climb above 3,000 ft AGL',check:()=>agl()>3000},{label:'Never descend faster than 2,000 ft/min after go-around',check:s=>s.maxSinkGa<2000,keep:true},G.noStall]},
+  {id:'qz8501',era:'2010–2019',flight:'Indonesia AirAsia 8501',date:'28 Dec 2014',type:'Airbus A320',fleet:'a320',apt:'WSSS',start:'cruise',wx:'storm',tod:'morning',alt:32000,kt:270,
+   what:'A cracked solder joint in the rudder travel limiter kept failing over the Java Sea. Resetting circuit breakers disconnected the autopilot; the aircraft rolled and the crew pulled into a stall they did not recover from.',
+   drill:'The autopilot drops out and the aircraft starts to roll. Hands on: wings level, small pitch inputs, avoid the stall for 90 s.',
+   lesson:'Know what resetting a system does, and when the automation drops out, fly gently: wings level, pitch near cruise attitude.',
+   events:[{when:s=>s.t>12,do:s=>{AP.master=false;plane.angVel.z+=.35;faults.inject('RUDDER_JAM');showMsg('AUTO FLT · RUDDER TRAVEL LIMIT FAULT · AP OFF',4000);}}],
+   goals:[{label:'Never exceed 45° of bank',check:s=>s.maxBank<45,keep:true,fail:s=>s.maxBank>=75},G.noStall,hold(90,'Stay in control for 90 s')]},
+  {id:'oz214',era:'2010–2019',flight:'Asiana Airlines 214',date:'6 Jul 2013',type:'Boeing 777-200ER',fleet:'b777',apt:'KSFO',start:'final',wx:'clear',tod:'noon',
+   what:'On a visual approach to San Francisco the autothrottle was left in a mode that did not hold speed. The 777 got slow and low, and its tail hit the seawall short of runway 28L.',
+   drill:'The autothrottle is not holding speed. Watch your airspeed and keep at least 137 kt until the flare.',
+   lesson:'Know what mode the automation is in, and monitor airspeed on every approach.',
+   events:[{when:s=>s.t>2,do:s=>{s.athrIdle=true;showMsg('A/T HOLD',3000);}}],
+   tick:s=>{if(s.athrIdle&&!s.athrTaken){if(Math.abs(plane.throttle-.05)>.08)s.athrTaken=true;else plane.throttle=.05;}},
+   goals:[{label:'Keep above 137 kt until 50 ft',check:s=>s.minAppKt>=137,keep:true},G.landRwy,G.softTouch]},
+  {id:'dana992',era:'2010–2019',flight:'Dana Air 992',date:'3 Jun 2012',type:'McDonnell Douglas MD-83',fleet:'md83',apt:'DNMM',start:'final',wx:'cloudy',tod:'golden',
+   what:'Approaching Lagos, one engine and then the other lost power. The MD-83 could not reach the runway and crashed into a residential area.',
+   drill:'Both engines fail on the approach. Hold best glide, keep the gear up until the field is made, and land as close to the runway as you can.',
+   lesson:'Engine trends in earlier flights were missed; maintenance records and early warnings save aircraft.',
+   events:[{when:s=>s.t>6,do:s=>{faults.inject('FLAMEOUT');showMsg('⚠ ENG 1 FAILURE',3000);}},{when:s=>s.t>16,do:s=>{bothOut();showMsg('⚠ DUAL ENGINE FAILURE',4000);}}],
+   goals:[G.noStall,G.landAny]},
+  {id:'ix812',era:'2010–2019',flight:'Air India Express 812',date:'22 May 2010',type:'Boeing 737-800',fleet:'b737',apt:'VOML',start:'final',wx:'clear',tod:'morning',high:150,
+   what:'At Mangalore’s table-top runway the 737 came in high and fast, touched down far along the runway, overran and fell down the slope beyond it.',
+   drill:'You are high on a short table-top runway. Either get stable and touch down in the first third, or go around.',
+   lesson:'A late go-around decision on a short runway is too late. Decide by 500 ft.',
+   goals:[{label:'Touch down in the first third, or go around',check:s=>s.touch?s.touchDist<RUNWAYS.VOML.len/3:s.maxAglAfter>1500,keep:true},G.landRwy]},
+  // ---------------- 2000–2009 ----------------
+  {id:'af447',era:'2000–2009',flight:'Air France 447',date:'1 Jun 2009',type:'Airbus A330-200',fleet:'a350',apt:'SBGR',start:'cruise',wx:'storm',tod:'night',alt:35000,kt:270,sub:'Airbus A350 stands in for the A330',
+   what:'Over the Atlantic at night, ice crystals blocked the pitot tubes. The autopilot disconnected, the pilot flying pulled up, and the A330 stalled and fell for over three minutes without the stall being recognised.',
+   drill:'Pitot icing at cruise, at night. The autopilot drops out. Do nothing hasty: keep ~5° nose-up, keep cruise power, and stay out of the stall for 2 minutes.',
+   lesson:'High-altitude unreliable airspeed: keep the attitude, don’t pull. Stall recovery is always nose DOWN.',
+   events:[{when:s=>s.t>10,do:s=>{faults.inject('PITOT_BLOCK');AP.master=false;showMsg('AUTOPILOT OFF · NAV ADR DISAGREE',4000);}}],
+   goals:[G.noStall,{label:'Stay within 1,500 ft of cruise altitude',check:s=>s.maxDev<1500,keep:true},hold(120,'Hold it for 2 minutes')]},
+  {id:'jk5022',era:'2000–2009',flight:'Spanair 5022',date:'20 Aug 2008',type:'McDonnell Douglas MD-82',fleet:'md83',apt:'LEMD',start:'takeoff',wx:'clear',tod:'noon',flaps0:true,
+   what:'Taking off from Madrid, the crew had not extended the flaps and slats, and the takeoff configuration warning did not sound. The MD-82 lifted off, stalled and crashed beside the runway.',
+   drill:'The flaps are up and no warning will save you. Do your before-takeoff check: set takeoff flaps before advancing the thrust.',
+   lesson:'Checklists catch what warnings miss. Read the flaps, every takeoff.',
+   tick:s=>{if(!s.flapChecked&&plane.onGround&&plane.throttle>.55){s.flapChecked=true;s.flapsAtRoll=plane.flaps;}},
+   goals:[{label:'Flaps set before the takeoff roll',check:s=>s.flapChecked&&s.flapsAtRoll>=1,keep:true},G.noStall,{label:'Climb to 2,000 ft AGL',check:()=>agl()>2000}]},
+  {id:'jj3054',era:'2000–2009',flight:'TAM 3054',date:'17 Jul 2007',type:'Airbus A320',fleet:'a320',apt:'SBSP',start:'final',wx:'rain',tod:'dusk',
+   what:'Landing on Congonhas’ short, wet runway with one thrust reverser inoperative, one thrust lever was left in climb. The spoilers did not deploy and the A320 ran off the end into a building.',
+   drill:'Short wet runway, spoilers won’t auto-deploy. After touchdown bring the throttle to idle, use brakes and reversers, and stop on the runway.',
+   lesson:'After touchdown, check thrust levers idle and spoilers up. If the airplane isn’t slowing, find out why immediately.',
+   events:[{when:s=>s.t>2,do:s=>faults.inject('SPOILER_JAM')}],
+   goals:[{label:'Throttle idle within 3 s of touchdown',check:s=>s.touch&&s.idleAfter<=3,keep:true},G.landRwy]},
+  {id:'g31907',era:'2000–2009',flight:'Gol 1907',date:'29 Sep 2006',type:'Boeing 737-800',fleet:'b737',apt:'SBGR',start:'cruise',wx:'clear',tod:'golden',alt:37000,kt:250,
+   what:'Over the Amazon a business jet with its transponder (and so TCAS) inadvertently off was flying head-on at the same level. The two collided; the 737 broke up.',
+   drill:'Conflicting traffic is coming at your altitude. Follow the TCAS resolution advisory immediately.',
+   lesson:'A working transponder makes TCAS work for both aircraft. When TCAS speaks, follow the RA.',
+   events:[{when:s=>s.t>8,do:s=>{faults.inject('COLLISION');}}],
+   goals:[{label:'Avoid the traffic',check:s=>s.t>70&&!plane.crashed,keep:false},G.noStall]},
+  {id:'fv612',era:'2000–2009',flight:'Pulkovo Aviation 612',date:'22 Aug 2006',type:'Tupolev Tu-154M',fleet:'b727',apt:'UUDD',start:'cruise',wx:'turbulent',tod:'golden',alt:35000,kt:240,sub:'Boeing 727 stands in for the Tu-154',
+   what:'Trying to climb over a thunderstorm near Donetsk, the heavily loaded Tu-154 slowed, pitched up and entered a deep stall in severe turbulence.',
+   drill:'Severe turbulence near a storm top. Don’t try to out-climb it: hold attitude, keep speed, avoid the stall for 2 minutes.',
+   lesson:'Go around storms, not over them. Near the ceiling, speed is life.',
+   events:[{when:s=>s.t>6,do:s=>{faults.inject('ICING');showMsg('SEVERE TURBULENCE',3000);}}],
+   goals:[G.noStall,hold(120,'Stay in control for 2 minutes')]},
+  {id:'hcy522',era:'2000–2009',flight:'Helios Airways 522',date:'14 Aug 2005',type:'Boeing 737-300',fleet:'b737',apt:'LCLK',start:'cruise',wx:'clear',tod:'morning',alt:16000,kt:260,
+   what:'The pressurisation selector had been left in MANUAL after maintenance. The crew misread the cabin altitude warning, became hypoxic, and the 737 flew on autopilot until it ran out of fuel.',
+   drill:'CABIN ALTITUDE warning. Masks on (press MASKS), then an emergency descent below 10,000 ft within 4 minutes.',
+   lesson:'A cabin altitude warning is never a configuration horn. Masks on first, then think.',
+   events:[{when:s=>s.t>6,do:s=>{faults.inject('CABIN_ALT');showMsg('⚠ CABIN ALTITUDE',5000);}}],
+   tick:s=>{if(faults.has('CABIN_ALT')&&!s.masks&&s.t>40&&altFt()>12000){s.fail='Hypoxia: oxygen masks were not put on in time.';}},
+   goals:[{label:'Oxygen masks on',check:s=>s.masks},{label:'Below 10,000 ft within 4 minutes',check:s=>altFt()<10000&&s.t<246,fail:s=>s.t>246&&altFt()>=10000}]},
+  {id:'aa587',era:'2000–2009',flight:'American Airlines 587',date:'12 Nov 2001',type:'Airbus A300-600R',fleet:'a350',apt:'KJFK',start:'takeoff',wx:'clear',tod:'morning',sub:'Airbus A350 stands in for the A300',
+   what:'Climbing out of New York JFK the A300 met wake turbulence from a 747. The first officer made large, alternating rudder inputs; the loads broke the vertical stabiliser off.',
+   drill:'Wake turbulence after takeoff. Recover with aileron and gentle inputs. Do NOT use large rudder.',
+   lesson:'Rudder is for yaw, not for roll recovery at speed. Full alternating rudder can exceed structural limits.',
+   events:[{when:s=>!plane.onGround&&agl()>1500,do:s=>{plane.angVel.z+=.55;plane.angVel.y+=.12;showMsg('WAKE TURBULENCE',3000);s.wake=true;}}],
+   tick:s=>{if(s.wake){if(Math.abs(plane.rudder)>.6)s.rudT+=1/60;}},
+   goals:[{label:'No large rudder inputs',check:s=>(s.rudT||0)<1,keep:true,fail:s=>(s.rudT||0)>3},{label:'Climb to 5,000 ft AGL',check:()=>agl()>5000}]},
+  {id:'af4590',era:'2000–2009',flight:'Air France 4590',date:'25 Jul 2000',type:'Concorde',fleet:'concorde',apt:'LFPG',start:'takeoff',wx:'clear',tod:'golden',
+   what:'During the Paris takeoff roll a tyre burst on a metal strip from another aircraft. Debris ruptured a fuel tank, a fire started and engines lost power; the gear would not retract and Concorde crashed at Gonesse.',
+   drill:'Tyre burst at high speed, then engine 1 fire. Continue the takeoff, pull the fire handle, keep speed and land back on any runway.',
+   lesson:'Runway debris checks and tank-liner and tyre changes followed; for crews, it is the classic “continue past V1” scenario.',
+   events:[{when:s=>plane.onGround&&kias()>150,do:s=>{faults.inject('TIRE_BURST');}},{when:s=>!plane.onGround&&agl()>80,do:s=>{triggerFire('L');faults.inject('GEAR_FAULT');showMsg('⚠ ENG 1 FIRE · GEAR WON’T RETRACT',5000);}}],
+   goals:[{label:'Fire extinguished',check:()=>!faults.has('ENG_FIRE_L')},G.noStall,G.landRwy]},
+  // ---------------- Pre-2000 ----------------
+  {id:'sr111',era:'Pre-2000',flight:'Swissair 111',date:'2 Sep 1998',type:'McDonnell Douglas MD-11',fleet:'dc10',apt:'CYHZ',start:'cruise',wx:'clear',tod:'night',alt:10000,kt:250,mayday:true,sub:'DC-10 stands in for the MD-11',
+   what:'An electrical arc ignited flammable insulation above the cockpit off Nova Scotia. Smoke was first thought to be from the air conditioning; while the crew prepared to dump fuel, the fire spread and disabled the aircraft.',
+   drill:'Smoke in the cockpit and an electrical failure. Declare MAYDAY and get on the ground at Halifax as fast as possible.',
+   lesson:'With smoke or fire, land as soon as possible. Every minute counts more than landing weight.',
+   events:[{when:s=>s.t>5,do:s=>{faults.inject('COCKPIT_SMOKE');showMsg('⚠ SMOKE IN COCKPIT',4000);}},{when:s=>s.t>40,do:s=>faults.inject('ELEC_BUS')}],
+   goals:[G.mayday,{label:'On the ground within 12 minutes',check:s=>landed(s)&&s.t<720,fail:s=>s.t>720&&!s.touch},G.landRwy]},
+  {id:'vj592',era:'Pre-2000',flight:'ValuJet 592',date:'11 May 1996',type:'McDonnell Douglas DC-9-32',fleet:'dc9',apt:'KMIA',start:'takeoff',wx:'clear',tod:'noon',
+   what:'Expired oxygen generators wrongly loaded as cargo started an intense fire in the hold soon after takeoff from Miami. The DC-9 crashed in the Everglades.',
+   drill:'Fire and smoke shortly after takeoff. Declare MAYDAY, turn back and land on any runway at Miami.',
+   lesson:'Hazardous materials rules and cargo-hold fire detection and suppression came directly from this accident.',
+   events:[{when:s=>!plane.onGround&&agl()>2500,do:s=>{faults.inject('COCKPIT_SMOKE');faults.inject('ELEC_BUS');showMsg('⚠ SMOKE · ELECTRICAL',4000);}}],
+   goals:[G.mayday,G.landRwy]},
+  {id:'us427',era:'Pre-2000',flight:'USAir 427',date:'8 Sep 1994',type:'Boeing 737-300',fleet:'b737',apt:'KPIT',start:'cruise',wx:'clear',tod:'dusk',alt:6000,kt:240,
+   what:'On approach to Pittsburgh the 737’s rudder power control unit jammed and reversed, deflecting the rudder fully. The aircraft rolled over and dived.',
+   drill:'A rudder hardover. Keep speed up (above 190 kt), counter with full aileron, and stay in control for 2 minutes.',
+   lesson:'The 737 rudder system was redesigned; crews learned the crossover speed: below it, aileron cannot beat a hardover.',
+   events:[{when:s=>s.t>8,do:s=>{faults.inject('RUDDER_JAM');plane.angVel.z+=.25;showMsg('⚠ YAW / ROLL UPSET',3000);}}],
+   goals:[{label:'Keep above 190 kt',check:s=>s.minKtAfter>=190,keep:true},{label:'Never exceed 60° of bank',check:s=>s.maxBank<60,keep:true,fail:s=>s.maxBank>=90},hold(120,'Stay in control for 2 minutes')]},
+  {id:'ci140',era:'Pre-2000',flight:'China Airlines 140',date:'26 Apr 1994',type:'Airbus A300-600R',fleet:'a350',apt:'RJGG',start:'final',wx:'clear',tod:'night',stab:true,sub:'Airbus A350 stands in for the A300',
+   what:'On approach to Nagoya the go-around mode was triggered by mistake. The pilot pushed to continue the approach while the autopilot trimmed nose-up; the aircraft pitched up steeply and stalled.',
+   drill:'The trim keeps running nose-up against you on short final. Cut out the trim, then land or go around.',
+   lesson:'Never fight the autopilot. Disconnect it, and know which mode it is in.',
+   events:[{when:s=>s.t>4,do:s=>{s.noseUp=true;showMsg('GO AROUND MODE · TRIM NOSE UP',4000);}}],
+   tick:s=>{if(s.noseUp&&!s.cutout)plane.elevTrim=Math.max(-1,plane.elevTrim-.0012);},
+   goals:[{label:'STAB TRIM CUTOUT',check:s=>s.cutout},G.noStall,G.landRwy]},
+  {id:'wt2120',era:'Pre-2000',flight:'Nigeria Airways 2120',date:'11 Jul 1991',type:'Douglas DC-8-61',fleet:'dc8',apt:'OEJN',start:'takeoff',wx:'clear',tod:'morning',
+   what:'Under-inflated tyres overheated on the Jeddah takeoff roll and caught fire. Retracting the gear brought the fire into the wheel well, and it burned through hydraulics and the cabin floor.',
+   drill:'Tyre failure on the takeoff roll, then fire. Leave the gear down, declare MAYDAY and land back.',
+   lesson:'Check tyre pressures. And if a wheel fire is suspected, leaving the gear down can keep the fire out of the airframe.',
+   events:[{when:s=>plane.onGround&&kias()>110,do:s=>faults.inject('TIRE_BURST')},{when:s=>!plane.onGround&&agl()>400,do:s=>{faults.inject('HYD_LOSS');faults.inject('COCKPIT_SMOKE');showMsg('⚠ WHEEL WELL FIRE · HYD',4000);}}],
+   goals:[{label:'Leave the gear down',check:s=>s.minGear>.9,keep:true},G.mayday,G.landRwy]},
+  {id:'sv163',era:'Pre-2000',flight:'Saudia 163',date:'19 Aug 1980',type:'Lockheed L-1011 TriStar',fleet:'l1011',apt:'OERK',start:'takeoff',wx:'clear',tod:'dusk',
+   what:'A fire broke out in the rear cargo hold after departure from Riyadh. The crew landed back safely, but taxied off the runway and the evacuation was not started; everyone on board died in the fire.',
+   drill:'Cargo smoke after takeoff. Return, land, STOP on the runway and order EVACUATE within 30 seconds of stopping.',
+   lesson:'After a fire landing, stop straight ahead and evacuate. The landing is only half of the job.',
+   events:[{when:s=>!plane.onGround&&agl()>2000,do:s=>{faults.inject('COCKPIT_SMOKE');showMsg('⚠ AFT CARGO SMOKE',4000);}}],
+   tick:s=>{if(landed(s)&&!s.stoppedAt)s.stoppedAt=s.t;},
+   goals:[G.landRwy,{label:'EVACUATE within 30 s of stopping',check:s=>s.evac&&s.stoppedAt&&s.evacT-s.stoppedAt<=30,fail:s=>s.stoppedAt&&!s.evac&&s.t-s.stoppedAt>30}],
+   needsEvac:true},
+  {id:'aa191',era:'Pre-2000',flight:'American Airlines 191',date:'25 May 1979',type:'McDonnell Douglas DC-10-10',fleet:'dc10',apt:'KORD',start:'takeoff',wx:'clear',tod:'noon',
+   what:'At rotation from Chicago O’Hare the left engine separated, damaging hydraulic lines; the left wing’s slats retracted. The crew followed the procedure and slowed to V2, below the stall speed of the damaged wing.',
+   drill:'Engine 1 separates at rotation and the left wing loses lift. Keep speed above 165 kt, keep the wings level and climb.',
+   lesson:'Engine pylon maintenance procedures changed. In a damaged aircraft, extra speed can be safer than the textbook V2.',
+   events:[{when:s=>!plane.onGround&&agl()>20,do:s=>{ENG.L.state='SHUTDOWN';faults.inject('HYD_LOSS');s.slats=true;showMsg('⚠ ENG 1 LOSS · SLAT DISAGREE',4000);}}],
+   tick:s=>{if(s.slats&&!plane.onGround&&kias()<165)plane.angVel.z+=.0025;},
+   goals:[{label:'Keep above 165 kt',check:s=>s.minKtAfter>=165,keep:true},G.noStall,{label:'Climb to 3,000 ft AGL',check:()=>agl()>3000}]},
+  {id:'jl123',era:'Pre-2000',flight:'Japan Air Lines 123',date:'12 Aug 1985',type:'Boeing 747SR',fleet:'b747',apt:'RJTT',start:'cruise',wx:'clear',tod:'dusk',alt:24000,kt:280,
+   what:'A faulty earlier repair of the rear pressure bulkhead failed after departure from Tokyo Haneda. The decompression tore off most of the tail and all four hydraulic systems were lost; the crew flew for 32 minutes using engine thrust only.',
+   drill:'Total hydraulic loss: the flight controls barely work. Use throttle to control pitch and stay airborne for 3 minutes.',
+   lesson:'Repairs must follow the manufacturer’s instructions exactly. Thrust-only control became a trained technique after this and later accidents.',
+   events:[{when:s=>s.t>6,do:s=>{faults.inject('HYD_TOTAL');faults.inject('CABIN_ALT');showMsg('⚠ HYD SYS 1-4 PRESS LO · CABIN ALT',5000);}}],
+   goals:[{label:'Never exceed 60° of bank',check:s=>s.maxBank<60,keep:true,fail:s=>s.maxBank>=100},hold(180,'Stay airborne for 3 minutes')]},
+  {id:'cx780',era:'Pre-2000',flight:'Cathay Pacific 780',date:'13 Apr 2010',type:'Airbus A330-300',fleet:'a350',apt:'VHHH',start:'final',wx:'clear',tod:'noon',fast:1.45,survived:true,sub:'Airbus A350 stands in for the A330',
+   what:'Contaminated fuel from Surabaya left one engine stuck near 70% N1 and the other near idle. The crew landed in Hong Kong at about 230 kt; all 322 people on board survived.',
+   drill:'Both thrust levers are stuck: one engine high, one at idle. You cannot slow down. Land fast, then stop on the runway with full brakes.',
+   lesson:'A celebrated piece of airmanship: the crew adapted to a situation no checklist covered.',
+   events:[{when:s=>s.t>2,do:s=>{s.stuck=true;showMsg('⚠ ENG 1 STALL · ENG 2 CONTROL FAULT',4000);}}],
+   tick:s=>{if(s.stuck){plane.throttle=.7;engFactor.L=.18;}},
+   goals:[G.gearDown,G.landRwy]},
+  ];
+  S.forEach(s=>{if(s.id==='cx780')s.era='2010–2019';});
+  const ERA_ORDER=['2020–2026','2010–2019','2000–2009','Pre-2000'];
+
+  let cur=null,st=null,prevFleet=null;
+  const hud=document.createElement('div');hud.id='emHud';hud.hidden=true;document.body.appendChild(hud);
+  const deb=document.createElement('div');deb.id='emDebrief';deb.hidden=true;document.body.appendChild(deb);
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  function setSel(id,v){const e=document.getElementById(id);if(e&&[...e.options].some(o=>o.value===v)){e.value=v;e.dispatchEvent(new Event('change',{bubbles:true}));}}
+
+  function launch(id){
+    const s=S.find(x=>x.id===id);if(!s)return 'unknown scenario';
+    cur=s;
+    if(window._emUseAircraft){const p=window._emUseAircraft(s.fleet);if(prevFleet==null)prevFleet=p;}
+    const v=(()=>{const sel=document.getElementById('locSelect');for(const o of sel.options)if(o.value.endsWith(','+s.apt))return o.value;return null;})();
+    if(v)setSel('locSelect',v);
+    setSel('startSel',s.start);setSel('wxSelect',s.wx);setSel('todSelect',s.tod);
+    try{window._applyLivery&&window._applyLivery(0);}catch(e){}
+    window._emPendingStart=true;
+    const b=document.getElementById('startBtn');
+    if(b&&b.offsetParent!==null&&!b.disabled)b.click();else try{respawn();}catch(e){}
+    return s.flight;
+  }
+  // called at the end of resetAircraft: apply the scenario's starting conditions
+  window._emOnReset=function(){
+    if(!cur)return;
+    const s=cur;deb.hidden=true;
+    st={t:0,touch:false,okT:0,maxBank:0,maxPitch:0,maxDev:0,maxKt:0,minGlideKt:999,minAppKt:999,minKtAfter:999,maxSinkGa:0,maxAglAfter:0,
+      minGear:1,stalled:false,fired:{},mayday:false,maydayT:0,masks:false,evac:false,cutout:false,idleAfter:99,rudT:0,done:false,fail:null,startAlt:0};
+    if(s.start==='cruise'&&s.alt){plane.pos.y=s.alt/FT;const sp=(s.kt||250)/KT;const d=plane.vel.length()>1?plane.vel.normalize():new BABYLON.Vector3(0,0,-1);plane.vel.copyFrom(d.scale(sp));plane.speed=sp;plane.throttle=.72;}
+    if(s.high)plane.pos.y+=s.high;
+    if(s.fast){plane.vel.scaleInPlace(s.fast);plane.speed*=s.fast;}
+    if(s.gearUp){plane.gearDown=false;plane.gearPos=0;plane.gearTarget=0;}
+    if(s.flaps0){plane.flaps=0;}
+    if(s.fuelKg!=null)plane.fuel=s.fuelKg;
+    st.startAlt=altFt();
+    renderHud();
+    setTimeout(()=>{try{showMsg('🚨 '+s.flight+' · '+s.drill.split('.')[0],6000);}catch(e){}},600);
+  };
+  // one-off goals latch once met; 'keep' goals must hold for the whole scenario
+  function goalState(g){if(g.fail&&g.fail(st))return 'fail';if(!g.keep&&st.gl&&st.gl[g.label])return 'ok';
+    const ok=g.check(st);if(ok&&!g.keep){(st.gl||(st.gl={}))[g.label]=true;}return ok?'ok':'todo';}
+  function renderHud(){
+    if(!cur||!st){hud.hidden=true;document.body.classList.remove('em-on');return;}
+    hud.hidden=false;document.body.classList.add('em-on');
+    const btn=(k,l,on)=>`<button type="button" data-em="${k}" class="${on?'on':''}">${l}</button>`;
+    hud.innerHTML=`<div class="emT">🚨 EMERGENCY · ${esc(cur.flight)}</div><div class="emD">${esc(cur.drill)}</div>
+      <ul>${cur.goals.map(g=>{const k=goalState(g);return `<li class="${k}">${k==='ok'?'✔':k==='fail'?'✖':'○'} ${esc(g.label)}</li>`;}).join('')}</ul>
+      <div class="emB">${btn('mayday','MAYDAY',st.mayday)}${cur.stab?btn('cutout','STAB TRIM CUTOUT',st.cutout):''}${cur.id==='hcy522'?btn('masks','MASKS',st.masks):''}${cur.needsEvac?btn('evac','EVACUATE',st.evac):''}${btn('quit','End',false)}</div>`;
+  }
+  hud.addEventListener('click',e=>{const b=e.target.closest('[data-em]');if(!b||!st)return;const k=b.dataset.em;
+    if(k==='mayday'&&!st.mayday){st.mayday=true;st.maydayT=st.t;atc('Mayday acknowledged, you have priority. Cleared to land any runway.');showMsg('MAYDAY DECLARED',3000);}
+    if(k==='cutout'&&!st.cutout){st.cutout=true;faults.clear('TRIM_RUNAWAY');showMsg('STAB TRIM CUTOUT · use manual trim',3000);}
+    if(k==='masks'){st.masks=true;showMsg('OXYGEN MASKS ON · 100%',3000);}
+    if(k==='evac'&&!st.evac){st.evac=true;st.evacT=st.t;showMsg('EVACUATE · EVACUATE',4000);}
+    if(k==='quit')finish(false,'Scenario ended.');
+    renderHud();});
+
+  function finish(ok,why){
+    if(!st||st.done)return;st.done=true;
+    const s=cur;const score=Math.max(0,Math.round((ok?1000:200)-(st.touch?Math.max(0,st.touchFpm-300):0)-st.goalsFailed*120));
+    let best={};try{best=JSON.parse(localStorage.getItem('sky_emBest')||'{}');}catch(e){}
+    if(ok&&(!best[s.id]||best[s.id]<score)){best[s.id]=score;try{localStorage.setItem('sky_emBest',JSON.stringify(best));}catch(e){}}
+    deb.innerHTML=`<div class="emCard"><div class="emH ${ok?'ok':'bad'}">${ok?'✔ SCENARIO PASSED':'✖ SCENARIO FAILED'}</div>
+      <div class="emWhy">${esc(why||'')}</div>
+      <ul>${s.goals.map(g=>{const k=goalState(g);return `<li class="${k}">${k==='ok'?'✔':k==='fail'?'✖':'○'} ${esc(g.label)}</li>`;}).join('')}</ul>
+      ${st.touch?`<div class="emStat">Touchdown ${Math.round(st.touchFpm)} ft/min</div>`:''}
+      <div class="emStat">Score <b>${score}</b>${best[s.id]?' · best '+best[s.id]:''}</div>
+      <h4>What happened · ${esc(s.flight)} · ${esc(s.date)} · ${esc(s.type)}</h4><p>${esc(s.what)}</p>
+      <h4>Lesson</h4><p>${esc(s.lesson)}</p>
+      <p class="emMem">${s.survived?'Everyone on board survived thanks to the crew.':'In memory of those who lost their lives. This drill exists so crews can learn from them.'}</p>
+      <div class="emBtns"><button type="button" data-d="retry">Try again</button><button type="button" data-d="home">Scenario list</button><button type="button" data-d="close">Keep flying</button></div></div>`;
+    deb.hidden=false;renderHud();
+  }
+  deb.addEventListener('click',e=>{const b=e.target.closest('[data-d]');if(!b)return;const k=b.dataset.d;deb.hidden=true;
+    if(k==='retry'&&cur){try{respawn();}catch(err){}}
+    if(k==='home'){stop();try{location.reload();}catch(err){}}
+    if(k==='close'){stop();}});
+  function stop(){cur=null;st=null;hud.hidden=true;document.body.classList.remove('em-on');try{if(prevFleet!=null&&window._emUseAircraft){window._emUseAircraft(prevFleet,true);prevFleet=null;}}catch(e){}}
+
+  let hudT=0;
+  scene.onBeforeRenderObservable.add(()=>{
+    if(!cur||!st||st.done||plane.hold)return;
+    const dt=Math.min(.1,(engine?engine.getDeltaTime():16)/1000);st.t+=dt;
+    const s=cur,a=agl(),k=kias();
+    for(let i=0;i<(s.events||[]).length;i++){const ev=s.events[i];if(!st.fired[i]&&ev.when(st)){st.fired[i]=true;try{ev.do(st);}catch(e){console.warn('em event',e);}st.evAt=st.t;}}
+    try{s.tick&&s.tick(st);}catch(e){}
+    if(plane.stall||faults.has('STALL'))st.stalled=true;
+    st.maxBank=Math.max(st.maxBank,bankDeg());st.maxPitch=Math.max(st.maxPitch,pitchDeg());st.maxKt=Math.max(st.maxKt,plane.onGround?0:k);
+    st.minGear=Math.min(st.minGear,plane.gearPos);
+    if(s.start==='cruise')st.maxDev=Math.max(st.maxDev,Math.abs(altFt()-st.startAlt));
+    const evd=Object.keys(st.fired).length>0;
+    if(evd&&!plane.onGround){st.minKtAfter=Math.min(st.minKtAfter,k);st.maxAglAfter=Math.max(st.maxAglAfter,a);
+      if(a>60)st.minGlideKt=Math.min(st.minGlideKt,k);
+      if(st.maxAglAfter>a+150&&st.maxAglAfter>1200)st.maxSinkGa=Math.max(st.maxSinkGa,-plane.vel.y*FT*60);}
+    if(!plane.onGround&&a>50&&s.start==='final')st.minAppKt=Math.min(st.minAppKt,k);
+    if(!plane.onGround)st.air=true;
+    if(st.air&&plane.onGround&&!st.touch){st.touch=true;st.touchFpm=Math.abs(st.lastVy||0)*FT*60;st.touchGear=plane.gearPos;st.touchDist=fromThreshold();st.touchT=st.t;}
+    if(!plane.onGround)st.lastVy=plane.vel.y;
+    if(st.touch&&st.idleAfter===99&&plane.throttle<.12)st.idleAfter=st.t-st.touchT;
+    if(!plane.crashed&&!(plane.stall))st.okT+=dt;
+    if(plane.crashed){finish(false,'The aircraft crashed.');return;}
+    if(st.fail){finish(false,st.fail);return;}
+    let fails=0;for(const g of s.goals)if(g.fail&&g.fail(st))fails++;st.goalsFailed=fails;
+    if(fails&&s.goals.some(g=>g.fail&&g.fail(st)&&!g.soft)){finish(false,'A critical goal was missed.');return;}
+    const allOk=s.goals.every(g=>goalState(g)==='ok');
+    if(allOk&&(!st.touch||landed(st))){finish(true,'Well flown.');return;}
+    if(st.touch&&landed(st)&&!s.needsEvac){finish(s.goals.every(g=>goalState(g)==='ok'),s.goals.every(g=>goalState(g)==='ok')?'Well flown.':'On the ground, but not every goal was met.');return;}
+    hudT+=dt;if(hudT>.4){hudT=0;renderHud();}
+  });
+  window.skyEmergency={list:()=>S.map(s=>({id:s.id,era:s.era,flight:s.flight,date:s.date,type:s.type,sub:s.sub||'',what:s.what,drill:s.drill,survived:!!s.survived})),eras:ERA_ORDER,launch,stop,
+    best:()=>{try{return JSON.parse(localStorage.getItem('sky_emBest')||'{}');}catch(e){return {};}}};
+  // after the home START FLIGHT button begins the flight, the reset hook runs; make sure the start state matches
+  setTimeout(()=>{try{document.dispatchEvent(new Event('skyEmergencyReady'));}catch(e){}},0);
+})();
+
 } /* end main */
 
 (function(){const prevTD=window._onTouchdown;window._onTouchdown=(sink,hs,noGear,water)=>{try{prevTD&&prevTD(sink,hs,noGear,water);}catch(e){}try{if(!noGear&&!water)window._ambThump&&window._ambThump(Math.min(1,sink/8));}catch(e){}};})();
