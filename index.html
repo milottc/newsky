@@ -2899,5 +2899,82 @@ function openEm(){
   draw();pg.hidden=false;
 }
 </script>
+
+<style id="homeOrgCss">
+/* ---- Organised home screen: one column of clear cards ---- */
+#overlay.homeOrg .homeBody{display:block!important;overflow:auto}
+#overlay.homeOrg #homeMenu,#overlay.homeOrg .homeColHead.oldHead{display:none!important}
+#overlay.homeOrg #homeSetup,#overlay.homeOrg #homeOptions{display:none!important}
+#homeCards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:12px 16px 16px}
+.hCard{background:#0c1a2c;border:1px solid #1d3a5c;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.hCard>h3{margin:0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7dd3fc;display:flex;align-items:center;gap:8px}
+.hCard>h3 span{font-size:16px;letter-spacing:0}
+.hCard .field{margin:0!important}
+.hCard select,.hCard input[type=text],.hCard input[type=number],.hCard input[type=password]{width:100%;box-sizing:border-box}
+.hCard.wide{grid-column:1/-1}
+.hAcName{font-size:16px;font-weight:800;color:#fff}
+.hRow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.hBtn{background:#0f2b44;color:#cfe9ff;border:1px solid #2a5885;border-radius:9px;padding:7px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.hBtn:hover{border-color:#38bdf8}
+#homeCards details{grid-column:1/-1;background:#0a1626;border:1px solid #1d3a5c;border-radius:14px;padding:0 14px}
+#homeCards details>summary{cursor:pointer;padding:12px 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#93c5fd;list-style:none}
+#homeCards details>summary::before{content:'▸ ';}
+#homeCards details[open]>summary::before{content:'▾ ';}
+#homeCards .moreGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding-bottom:14px}
+#overlay:not(.mode-mp) .hCard.mpOnly{display:none}
+#overlay.mode-mp .hCard.mpOnly{grid-column:1/-1;border-color:#22c55e}
+@media (max-width:900px){#homeCards{grid-template-columns:1fr 1fr}}
+@media (max-width:620px){#homeCards{grid-template-columns:1fr;padding:10px}#homeCards .moreGrid{grid-template-columns:1fr}}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{try{
+  const ov=document.getElementById('overlay'),body=document.querySelector('.homeBody');if(!ov||!body)return;
+  const $=id=>document.getElementById(id);
+  const fieldOf=id=>{const e=$(id);return e?(e.closest('.field')||e):null;};
+  const card=(icon,title,cls)=>{const c=document.createElement('section');c.className='hCard'+(cls?' '+cls:'');c.innerHTML='<h3><span>'+icon+'</span>'+title+'</h3>';return c;};
+  const wrap=document.createElement('div');wrap.id='homeCards';
+  // 1. Aircraft
+  const ac=card('✈','Aircraft');
+  ac.insertAdjacentHTML('beforeend','<div id="hAcName" hidden></div><div class="field"><label>Your aircraft</label><select id="hAcSel"></select></div><div class="hRow"><button type="button" class="hBtn" data-home-panel-go="hangar">🛒 Hangar &amp; store</button></div>');
+  [fieldOf('liverySel'),fieldOf('startSel')].forEach(f=>f&&ac.appendChild(f));
+  // 2. Route
+  const rt=card('📍','Route');
+  const dep=fieldOf('locSelect');if(dep)rt.appendChild(dep);
+  const fp=$('homeCrzAlt')&&$('homeCrzAlt').closest('.setupSubCard');if(fp)rt.appendChild(fp);
+  // 3. Conditions
+  const cn=card('🌤','Conditions');
+  [fieldOf('todSelect'),fieldOf('wxSelect'),fieldOf('turbSel')].forEach(f=>f&&cn.appendChild(f));
+  {const tl=fieldOf('turbSel');const l=tl&&tl.querySelector('label');if(l)l.textContent='Turbulence';}
+  const cw=$('cwChallengeBtn');if(cw){const f=cw.closest('.field')||cw;cn.appendChild(f);}
+  // 4. Multiplayer (only in Multiplayer mode)
+  const mp=card('🌐','Multiplayer','mpOnly');
+  const mpc=$('mpHomeCallsign')&&$('mpHomeCallsign').closest('.setupSubCard');if(mpc)mp.appendChild(mpc);
+  // 5. More options
+  const more=document.createElement('details');more.innerHTML='<summary>More options · map imagery, keys, controls</summary><div class="moreGrid"></div>';
+  const mg=more.querySelector('.moreGrid');
+  const vis=card('🗺','Map imagery');[fieldOf('resSelect'),fieldOf('imagerySourceSelect'),fieldOf('keyInput')].forEach(f=>f&&vis.appendChild(f));
+  const st=card('⚙','Settings &amp; help');st.insertAdjacentHTML('beforeend','<div class="hRow"><button type="button" class="hBtn" data-open-settings>⚙ Graphics, cockpit, sound &amp; ATC</button><button type="button" class="hBtn" data-home-panel-go="missions">📋 Missions &amp; lessons</button></div>');
+  const notes=document.querySelector('#homeOptions .hint:last-of-type');if(notes)st.appendChild(notes);
+  mg.append(vis,st);
+  const ctl=$('homeControls');if(ctl){const w=card('⌨','Controls','wide');w.appendChild(ctl);mg.appendChild(w);}
+  wrap.append(ac,rt,cn,mp,more);
+  body.prepend(wrap);ov.classList.add('homeOrg');
+  // buttons that open the existing hangar / missions panels
+  wrap.addEventListener('click',e=>{const b=e.target.closest('[data-home-panel-go]');if(!b)return;
+    const t=document.querySelector('#homeMenu [data-home-panel="'+b.dataset.homePanelGo+'"]');if(t)t.click();});
+  // settings button (the page listens for [data-open-settings] clicks at load; forward ours)
+  st.querySelector('[data-open-settings]').addEventListener('click',()=>{const o=document.querySelector('#homeOptions [data-open-settings]')||document.querySelector('.heroSettings');if(o)o.click();});
+  // aircraft picker
+  const sel=$('hAcSel'),nm=$('hAcName');
+  const fill=()=>{if(!window._fleetList)return;const L=window._fleetList();
+    sel.innerHTML=L.map(f=>'<option value="'+f.i+'"'+(f.cur?' selected':'')+(f.owned?'':' disabled')+'>'+f.name+(f.owned?'':' · 🔒 hangar')+'</option>').join('');
+    const c=L.find(f=>f.cur);nm.textContent=c?c.name:'—';};
+  sel.addEventListener('change',()=>{if(window._selectFleet&&window._selectFleet(+sel.value))fill();});
+  document.addEventListener('skyFleetChanged',fill);
+  let tries=0;const t=setInterval(()=>{fill();if(window._fleetList||++tries>40)clearInterval(t);},500);
+  // refresh when the hangar closes
+  setInterval(()=>{if(!ov.classList.contains('hidden')&&window._fleetList){const c=window._fleetList().find(f=>f.cur);if(c&&nm.textContent!==c.name)fill();}},1500);
+}catch(e){console.warn('home organiser',e);}});
+</script>
 </body>
 </html>

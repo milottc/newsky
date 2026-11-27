@@ -13577,6 +13577,10 @@ NJ.forEach(p=>{if(p.analog)ANALOG_SET.add(p.id);if(p.brand==='airbus')AIRBUS_SET
   try{window.liveryOthers();}catch(e){console.error(e);}
   window._modelRoots=modelRoots;window._DRESS=DRESS;window._FLEET=FLEET;
   setActiveAircraft(fleet().model);
+  // home screen aircraft picker: owned aircraft only (the hangar sells the rest)
+  window._fleetList=()=>FLEET.map((f,i)=>({i,id:f.id,name:f.name,owned:ownsFleet(i),cur:i===C.upgrades.fleet}));
+  window._selectFleet=i=>{if(!FLEET[i]||!ownsFleet(i))return false;C.upgrades.fleet=i;save();try{setActiveAircraft(FLEET[i].model);renderHUD();renderShop();}catch(e){}
+    try{document.dispatchEvent(new Event('skyFleetChanged'));}catch(e){}return true;};
   window._emUseAircraft=function(id,isIndex){const i=isIndex?id:FLEET.findIndex(f=>f.id===id);if(i<0||!FLEET[i])return null;
     const prev=C.upgrades.fleet;C.upgrades.fleet=i;try{setActiveAircraft(FLEET[i].model);renderHUD();}catch(e){}return prev;};
   window.__flyTo=function(id){const i=typeof id==='number'?id:FLEET.findIndex(f=>f.id===id);if(i<0||!FLEET[i])return 'unknown aircraft';
