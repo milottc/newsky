@@ -2420,8 +2420,8 @@ body.pfd-hidden #compass {
           <label>Imagery Resolution</label>
           <select id="resSelect">
             <option value="low">Low (Fastest load, blurry)</option>
-            <option value="med" selected>Medium (Balanced)</option>
-            <option value="high">High (Detailed)</option>
+            <option value="med">Medium (Balanced)</option>
+            <option value="high" selected>High (Detailed, sharp)</option>
             <option value="ultra">Ultra (Sharpest, slow load)</option>
           </select>
         </div>
@@ -2555,6 +2555,7 @@ body.pfd-hidden #compass {
   </div>
 </div>
 <script>
+  try{const r=localStorage.getItem('sky_res'),el=document.getElementById('resSelect');if(r&&el&&[...el.options].some(o=>o.value===r))el.value=r;}catch(e){}
   /* Settings page (markup sits further down the page, so wire it up once the DOM is parsed) */
   document.addEventListener('DOMContentLoaded',function(){
     const pg=document.getElementById('settingsPage');if(!pg)return;
@@ -2629,14 +2630,14 @@ body.pfd-hidden #compass {
         <div class="field">
           <label>Aircraft models</label>
           <select id="realModelSel">
-            <option value="1">Detailed 3D models (737, 747, 777, A380, DC-9 family, DC-10, Cessna 172)</option>
+            <option value="1">Detailed 3D models (737, 747, 777, A380, Airbus, regional jets, DC-9 family, DC-10, Cessna 172, Cirrus SR22)</option>
             <option value="0">Classic (original planes)</option>
           </select>
         </div>
         <div class="field">
           <label>Cockpit</label>
           <select id="realCockpitSel">
-            <option value="1">Detailed 3D cockpit (airliners, business jets, Cessna 172)</option>
+            <option value="1">Detailed 3D cockpit (airliners, business jets, Cessna 172, Cirrus SR22)</option>
             <option value="0">Classic cockpit</option>
           </select>
         </div>

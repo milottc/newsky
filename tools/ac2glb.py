@@ -64,7 +64,9 @@ def parse_ac(fn):
             elif k == 'loc': o['loc'] = tuple(map(float, l.split()[1:4]))
             elif k == 'rot': o['rot'] = list(map(float, l.split()[1:10]))
             elif k == 'data':
-                n = int(l.split()[1]); i += 1 if n >= 0 else 0
+                # data <bytes> may span several lines
+                n = int(l.split()[1]); got = 0
+                while got < n and i < len(toks): got += len(toks[i]) + 1; i += 1
             elif k == 'numvert':
                 n = int(l.split()[1])
                 for _ in range(n):
@@ -94,6 +96,8 @@ def parse_ac(fn):
                 o['world'] = world
                 objs.append(o)
                 for _ in range(int(l.split()[1])):
+                    while i < len(toks) and not toks[i].startswith('OBJECT'): i += 1
+                    if i >= len(toks): break
                     i = read_obj(i, world)
                 return i
         return i
@@ -114,6 +118,10 @@ AC2FG = [[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]]
 groups = {}  # key -> dict(pos, nrm, uv, idx, mat, tex, two)
 SCREEN_N = [0]
 CROP = {'737-800.ac': lambda P: all(p[2] < 15.2 for p in P) or any(abs(p[0]) > 2.3 for p in P)}  # keep only the nose shell
+# extra crop via env: CROP_AC=<file.ac> CROP_ZMIN=<z> CROP_XMAX=<|x|>  (file-space coordinates, z forward)
+if os.environ.get('CROP_AC'):
+    _zmin=float(os.environ.get('CROP_ZMIN','0')); _xmax=float(os.environ.get('CROP_XMAX','99'))
+    CROP[os.environ['CROP_AC']] = lambda P,z=_zmin,x=_xmax: all(p[2] < z for p in P) or any(abs(p[0]) > x for p in P)
 textures = {}
 
 def add_ac(fn, place_m):
@@ -169,6 +177,7 @@ def add_xml(fn, parent_m):
     for mdl in root.findall('model'):
         mp = mdl.findtext('path')
         if not mp or 'landinglight' in mp: continue
+        if os.environ.get('SKIP_PATH') and re.search(os.environ['SKIP_PATH'], mp): continue
         f = resolve(mp, base)
         if not f: print('missing', mp, file=sys.stderr); continue
         m = mat_mul(here, offsets_matrix(mdl.find('offsets')))
