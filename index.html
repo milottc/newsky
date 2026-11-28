@@ -1068,7 +1068,7 @@ body:not(.mobile) #homeStars{display:none!important}
 #settingsPage .spDone{background:#06b6d4;color:#031018;border:0;border-radius:10px;padding:9px 22px;font:inherit;font-weight:800;letter-spacing:.08em;cursor:pointer}
 @media (max-width:760px){#settingsPage .spGrid{grid-template-columns:1fr}.heroSettings{top:auto;bottom:8px;right:8px;padding:6px 10px}}
 /* ---- Home modes ---- */
-#homeModes{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:12px 16px 4px}
+#homeModes{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 16px 4px}
 .homeMode{display:flex;align-items:center;gap:12px;text-align:left;padding:14px 16px;border-radius:14px;cursor:pointer;
   background:linear-gradient(180deg,#0f1d33,#0a1424);border:1px solid #1e3352;color:#cfe3f7;font:inherit;transition:transform .15s,border-color .15s,box-shadow .15s}
 .homeMode:hover{border-color:#2f5c8c;transform:translateY(-1px)}
@@ -1951,6 +1951,10 @@ body.pfd-hidden #compass {
         <span class="hmIcon" aria-hidden="true">🏆</span>
         <span class="hmText"><b>Career</b><small>Missions, lessons, money and the hangar</small></span>
       </button>
+      <button class="homeMode" type="button" role="tab" data-mode="em">
+        <span class="hmIcon" aria-hidden="true">🚨</span>
+        <span class="hmText"><b>Emergency</b><small>Train for real-world emergencies</small></span>
+      </button>
       <button class="homeMode" type="button" role="tab" data-mode="mp">
         <span class="hmIcon" aria-hidden="true">🌐</span>
         <span class="hmText"><b>Multiplayer</b><small>Fly with other pilots and live ATC</small></span>
@@ -2346,7 +2350,18 @@ body.pfd-hidden #compass {
   <option value="72.0000,-40.0000,2000,GREENLAND">Greenland Ice Sheet (GREENLAND)</option>
 </optgroup>
             <option value="CUSTOM">— Custom Coordinates —</option>
-          </select>
+                      <optgroup label="🚨 Emergency training airports">
+  <option value="34.9914,126.3828,16,RKJB">Muan (RKJB)</option>
+  <option value="23.0772,72.6347,55,VAAH">Ahmedabad (VAAH)</option>
+  <option value="11.1368,75.9553,104,VOCL">Kozhikode (VOCL)</option>
+  <option value="12.9613,74.8901,103,VOML">Mangalore (VOML)</option>
+  <option value="35.2550,136.9244,15,RJGG">Nagoya Komaki (RJGG)</option>
+  <option value="22.9892,-82.4091,64,MUHA">Havana (MUHA)</option>
+  <option value="6.1645,-75.4231,2142,SKRG">Medellín Rionegro (SKRG)</option>
+  <option value="47.2582,39.8181,85,URRR">Rostov-on-Don (URRR)</option>
+  <option value="34.8751,33.6249,2,LCLK">Larnaca (LCLK)</option>
+            </optgroup>
+</select>
           <script>
           (function(){
             const src=document.getElementById('locSelect');
@@ -2589,6 +2604,7 @@ body.pfd-hidden #compass {
     const ov=document.getElementById('overlay'),start=document.getElementById('startBtn');
     const jump=id=>{const b=document.querySelector('[data-home-jump="'+id+'"]');if(b)b.click();};
     const setMode=(m,user)=>{
+      if(m==='em'){if(user)openEm();return;}
       if(!['free','career','mp'].includes(m))m='free';
       ov.classList.remove('mode-free','mode-career','mode-mp');ov.classList.add('mode-'+m);
       document.querySelectorAll('.homeMode').forEach(b=>{const on=b.dataset.mode===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',on);});
@@ -2641,6 +2657,15 @@ body.pfd-hidden #compass {
             <option value="0">Classic cockpit</option>
           </select>
         </div>
+        <div class="field">
+          <label for="homeCode">Aircraft code</label>
+          <div style="display:flex;gap:8px"><input id="homeCode" type="text" maxlength="32" placeholder="e.g. FREEBOEING" autocomplete="off" style="flex:1">
+          <button type="button" id="homeCodeBtn" class="spBuy">Redeem</button></div>
+          <div id="homeCodeMsg" role="status" aria-live="polite" style="font-size:12px;margin-top:6px;color:#8ba3c0">FREEBOEING unlocks the 737 and 747, FREE737 the 737, FREE747 the 747.</div>
+        </div>
+        <script>document.addEventListener('DOMContentLoaded',()=>{const b=document.getElementById('homeCodeBtn'),i=document.getElementById('homeCode'),m=document.getElementById('homeCodeMsg');
+          const go=()=>{if(!window.skyRedeem){m.textContent='Still loading, try again in a moment.';return;}const r=window.skyRedeem(i.value);m.textContent=r.text;m.style.color=r.ok?'#4ade80':'#fca5a5';if(r.ok)i.value='';};
+          b.addEventListener('click',go);i.addEventListener('keydown',e=>{if(e.key==='Enter')go();});});</script>
 
       </section>
       <section class="spSec"><h3>Controls</h3>
@@ -2802,5 +2827,154 @@ body.pfd-hidden #compass {
 })();
 </script>
 
+
+<div id="emPage" role="dialog" aria-modal="true" aria-labelledby="emTitle" hidden>
+  <div class="emPCard">
+    <div class="emPHead"><h2 id="emTitle">🚨 Emergency training</h2><button type="button" class="spClose" id="emClose" aria-label="Close">✕</button></div>
+    <p class="emIntro">Each drill recreates the emergency a crew faced in a real accident or incident, so you can practise the response that the investigations taught.
+      Events caused by attacks, shoot-downs, bombs or deliberate pilot action are not included. Where the real type isn’t in the sim, the closest one stands in.</p>
+    <div id="emEras" role="tablist"></div>
+    <div id="emList"></div>
+  </div>
+</div>
+<style>
+#emPage{position:fixed;inset:0;z-index:10050;background:rgba(2,8,16,.78);display:flex;align-items:center;justify-content:center;padding:16px}
+#emPage[hidden]{display:none}
+#emPage .emPCard{background:#0a1626;border:1px solid #1e3a5c;border-radius:16px;width:min(980px,100%);max-height:92vh;display:flex;flex-direction:column;color:#dbe7f5;overflow:hidden}
+#emPage .emPHead{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #16304d}
+#emPage h2{margin:0;font-size:18px;letter-spacing:.06em}
+#emPage .emIntro{margin:10px 18px 4px;font-size:12px;color:#8ba3c0;line-height:1.5}
+#emEras{display:flex;gap:6px;padding:8px 18px;flex-wrap:wrap}
+#emEras button{background:#0f2238;border:1px solid #1e3a5c;color:#cfe3f7;border-radius:999px;padding:6px 14px;font:inherit;font-size:12px;cursor:pointer}
+#emEras button.on{background:#7f1d1d;border-color:#ef4444;color:#fff}
+#emList{overflow:auto;padding:6px 18px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.emItem{background:#0d1d31;border:1px solid #1e3a5c;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.emItem b{font-size:14px;color:#fff}.emItem .emMeta{font-size:11px;color:#8ba3c0}
+.emItem .emWhat{font-size:12px;line-height:1.45;color:#c4d4e6}
+.emItem .emDrill{font-size:12px;line-height:1.45;color:#fcd34d}
+.emItem button{margin-top:auto;align-self:flex-start;background:#dc2626;color:#fff;border:0;border-radius:9px;padding:8px 16px;font:inherit;font-weight:800;letter-spacing:.06em;cursor:pointer}
+.emItem .emBest{font-size:11px;color:#4ade80}
+#emHud{position:fixed;top:64px;left:12px;z-index:60;width:min(320px,calc(100vw - 24px));background:rgba(10,18,30,.88);border:1px solid #7f1d1d;border-radius:12px;padding:10px 12px;color:#e5edf7;font:12px/1.4 system-ui,sans-serif;pointer-events:auto}
+#emHud[hidden]{display:none}
+body.em-on #objHud{display:none!important}
+#emHud .emT{font-weight:800;color:#fca5a5;letter-spacing:.04em;margin-bottom:4px}
+#emHud .emD{color:#cbd5e1;margin-bottom:6px}
+#emHud ul,#emDebrief ul{list-style:none;margin:0 0 8px;padding:0}
+#emHud li,#emDebrief li{padding:2px 0}
+#emHud li.ok,#emDebrief li.ok{color:#4ade80}#emHud li.fail,#emDebrief li.fail{color:#f87171}#emHud li.todo,#emDebrief li.todo{color:#e5edf7}
+#emHud .emB{display:flex;flex-wrap:wrap;gap:6px}
+#emHud .emB button{background:#1f2937;color:#fff;border:1px solid #475569;border-radius:7px;padding:5px 9px;font:inherit;font-weight:700;cursor:pointer}
+#emHud .emB button.on{background:#166534;border-color:#22c55e}
+#emHud .emB button[data-em=mayday]{border-color:#ef4444}
+#emDebrief{position:fixed;inset:0;z-index:10040;background:rgba(2,8,16,.7);display:flex;align-items:center;justify-content:center;padding:16px}
+#emDebrief[hidden]{display:none}
+#emDebrief .emCard{background:#0a1626;border:1px solid #1e3a5c;border-radius:16px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:18px;color:#dbe7f5;font:13px/1.5 system-ui,sans-serif}
+#emDebrief .emH{font-size:18px;font-weight:800;letter-spacing:.06em;margin-bottom:6px}
+#emDebrief .emH.ok{color:#4ade80}#emDebrief .emH.bad{color:#f87171}
+#emDebrief h4{margin:12px 0 4px;color:#93c5fd}
+#emDebrief p{margin:0 0 6px}
+#emDebrief .emMem{color:#94a3b8;font-style:italic}
+#emDebrief .emBtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+#emDebrief .emBtns button{background:#06b6d4;color:#031018;border:0;border-radius:9px;padding:8px 16px;font:inherit;font-weight:800;cursor:pointer}
+@media (max-width:760px){#emHud{top:auto;bottom:90px}}
+</style>
+<script>
+function openEm(){
+  const pg=document.getElementById('emPage');
+  const E=window.skyEmergency;
+  if(!E){alert('Still loading, try again in a moment.');return;}
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const all=E.list(),best=E.best();let era=E.eras[0];
+  const draw=()=>{
+    document.getElementById('emEras').innerHTML=E.eras.map(e=>`<button type="button" data-era="${e}" class="${e===era?'on':''}">${e}</button>`).join('');
+    document.getElementById('emList').innerHTML=all.filter(s=>s.era===era).map(s=>`<div class="emItem">
+      <b>${esc(s.flight)}</b><div class="emMeta">${esc(s.date)} · ${esc(s.type)}${s.sub?' · '+esc(s.sub):''}</div>
+      <div class="emWhat">${esc(s.what)}</div><div class="emDrill">Drill: ${esc(s.drill)}</div>
+      ${best[s.id]?`<div class="emBest">Best score ${best[s.id]}</div>`:''}
+      <button type="button" data-fly="${s.id}">Train</button></div>`).join('');
+  };
+  pg.onclick=e=>{const b=e.target.closest('[data-era]');if(b){era=b.dataset.era;draw();return;}
+    const f=e.target.closest('[data-fly]');if(f){pg.hidden=true;E.launch(f.dataset.fly);}
+    if(e.target.id==='emClose'||e.target===pg)pg.hidden=true;};
+  draw();pg.hidden=false;
+}
+</script>
+
+<style id="homeOrgCss">
+/* ---- Organised home screen: one column of clear cards ---- */
+#overlay.homeOrg .homeBody{display:block!important;overflow:auto}
+#overlay.homeOrg #homeMenu,#overlay.homeOrg .homeColHead.oldHead{display:none!important}
+#overlay.homeOrg #homeSetup,#overlay.homeOrg #homeOptions{display:none!important}
+#homeCards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:12px 16px 16px}
+.hCard{background:#0c1a2c;border:1px solid #1d3a5c;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.hCard>h3{margin:0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7dd3fc;display:flex;align-items:center;gap:8px}
+.hCard>h3 span{font-size:16px;letter-spacing:0}
+.hCard .field{margin:0!important}
+.hCard select,.hCard input[type=text],.hCard input[type=number],.hCard input[type=password]{width:100%;box-sizing:border-box}
+.hCard.wide{grid-column:1/-1}
+.hAcName{font-size:16px;font-weight:800;color:#fff}
+.hRow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.hBtn{background:#0f2b44;color:#cfe9ff;border:1px solid #2a5885;border-radius:9px;padding:7px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.hBtn:hover{border-color:#38bdf8}
+#homeCards details{grid-column:1/-1;background:#0a1626;border:1px solid #1d3a5c;border-radius:14px;padding:0 14px}
+#homeCards details>summary{cursor:pointer;padding:12px 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#93c5fd;list-style:none}
+#homeCards details>summary::before{content:'▸ ';}
+#homeCards details[open]>summary::before{content:'▾ ';}
+#homeCards .moreGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding-bottom:14px}
+#overlay:not(.mode-mp) .hCard.mpOnly{display:none}
+#overlay.mode-mp .hCard.mpOnly{grid-column:1/-1;border-color:#22c55e}
+@media (max-width:900px){#homeCards{grid-template-columns:1fr 1fr}}
+@media (max-width:620px){#homeCards{grid-template-columns:1fr;padding:10px}#homeCards .moreGrid{grid-template-columns:1fr}}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{try{
+  const ov=document.getElementById('overlay'),body=document.querySelector('.homeBody');if(!ov||!body)return;
+  const $=id=>document.getElementById(id);
+  const fieldOf=id=>{const e=$(id);return e?(e.closest('.field')||e):null;};
+  const card=(icon,title,cls)=>{const c=document.createElement('section');c.className='hCard'+(cls?' '+cls:'');c.innerHTML='<h3><span>'+icon+'</span>'+title+'</h3>';return c;};
+  const wrap=document.createElement('div');wrap.id='homeCards';
+  // 1. Aircraft
+  const ac=card('✈','Aircraft');
+  ac.insertAdjacentHTML('beforeend','<div id="hAcName" hidden></div><div class="field"><label>Your aircraft</label><select id="hAcSel"></select></div><div class="hRow"><button type="button" class="hBtn" data-home-panel-go="hangar">🛒 Hangar &amp; store</button></div>');
+  [fieldOf('liverySel'),fieldOf('startSel')].forEach(f=>f&&ac.appendChild(f));
+  // 2. Route
+  const rt=card('📍','Route');
+  const dep=fieldOf('locSelect');if(dep)rt.appendChild(dep);
+  const fp=$('homeCrzAlt')&&$('homeCrzAlt').closest('.setupSubCard');if(fp)rt.appendChild(fp);
+  // 3. Conditions
+  const cn=card('🌤','Conditions');
+  [fieldOf('todSelect'),fieldOf('wxSelect'),fieldOf('turbSel')].forEach(f=>f&&cn.appendChild(f));
+  {const tl=fieldOf('turbSel');const l=tl&&tl.querySelector('label');if(l)l.textContent='Turbulence';}
+  const cw=$('cwChallengeBtn');if(cw){const f=cw.closest('.field')||cw;cn.appendChild(f);}
+  // 4. Multiplayer (only in Multiplayer mode)
+  const mp=card('🌐','Multiplayer','mpOnly');
+  const mpc=$('mpHomeCallsign')&&$('mpHomeCallsign').closest('.setupSubCard');if(mpc)mp.appendChild(mpc);
+  // 5. More options
+  const more=document.createElement('details');more.innerHTML='<summary>More options · map imagery, keys, controls</summary><div class="moreGrid"></div>';
+  const mg=more.querySelector('.moreGrid');
+  const vis=card('🗺','Map imagery');[fieldOf('resSelect'),fieldOf('imagerySourceSelect'),fieldOf('keyInput')].forEach(f=>f&&vis.appendChild(f));
+  const st=card('⚙','Settings &amp; help');st.insertAdjacentHTML('beforeend','<div class="hRow"><button type="button" class="hBtn" data-open-settings>⚙ Graphics, cockpit, sound &amp; ATC</button><button type="button" class="hBtn" data-home-panel-go="missions">📋 Missions &amp; lessons</button></div>');
+  const notes=document.querySelector('#homeOptions .hint:last-of-type');if(notes)st.appendChild(notes);
+  mg.append(vis,st);
+  const ctl=$('homeControls');if(ctl){const w=card('⌨','Controls','wide');w.appendChild(ctl);mg.appendChild(w);}
+  wrap.append(ac,rt,cn,mp,more);
+  body.prepend(wrap);ov.classList.add('homeOrg');
+  // buttons that open the existing hangar / missions panels
+  wrap.addEventListener('click',e=>{const b=e.target.closest('[data-home-panel-go]');if(!b)return;
+    const t=document.querySelector('#homeMenu [data-home-panel="'+b.dataset.homePanelGo+'"]');if(t)t.click();});
+  // settings button (the page listens for [data-open-settings] clicks at load; forward ours)
+  st.querySelector('[data-open-settings]').addEventListener('click',()=>{const o=document.querySelector('#homeOptions [data-open-settings]')||document.querySelector('.heroSettings');if(o)o.click();});
+  // aircraft picker
+  const sel=$('hAcSel'),nm=$('hAcName');
+  const fill=()=>{if(!window._fleetList)return;const L=window._fleetList();
+    sel.innerHTML=L.map(f=>'<option value="'+f.i+'"'+(f.cur?' selected':'')+(f.owned?'':' disabled')+'>'+f.name+(f.owned?'':' · 🔒 hangar')+'</option>').join('');
+    const c=L.find(f=>f.cur);nm.textContent=c?c.name:'—';};
+  sel.addEventListener('change',()=>{if(window._selectFleet&&window._selectFleet(+sel.value))fill();});
+  document.addEventListener('skyFleetChanged',fill);
+  let tries=0;const t=setInterval(()=>{fill();if(window._fleetList||++tries>40)clearInterval(t);},500);
+  // refresh when the hangar closes
+  setInterval(()=>{if(!ov.classList.contains('hidden')&&window._fleetList){const c=window._fleetList().find(f=>f.cur);if(c&&nm.textContent!==c.name)fill();}},1500);
+}catch(e){console.warn('home organiser',e);}});
+</script>
 </body>
 </html>
